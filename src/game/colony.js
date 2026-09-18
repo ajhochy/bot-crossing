@@ -64,14 +64,15 @@ const LIVE_GROWTH = 0.004
 /** How many zones' positions to remember, including repos with nothing running in them. */
 const LAYOUT_MEMORY = 80
 
-export const STATUS_ORDER = ['blocked', 'waiting', 'working', 'celebrating', 'idle', 'sleeping']
+export const STATUS_ORDER = ['blocked', 'waiting', 'working', 'celebrating', 'unknown', 'idle', 'sleeping']
 
 export const STATUS_LABEL = {
   working: 'Working',
   waiting: 'Waiting on you',
   blocked: 'Blocked',
   celebrating: 'Shipped',
-  idle: 'Idle',
+  idle: 'Quiet',
+  unknown: 'Activity unknown',
   sleeping: 'Dormant',
   spawning: 'Arriving',
   leaving: 'Heading home',
@@ -83,6 +84,7 @@ export function statusFor(thread, now = Date.now()) {
   if (thread.running) return 'working'
   if (thread.prState === 'MERGED') return 'celebrating'
   if (thread.unread) return 'waiting'
+  if (thread.activity === 'unknown' || thread.running === null) return 'unknown'
   if (now - thread.lastActivityAt > STALE_MS) return 'sleeping'
   return 'idle'
 }
@@ -476,7 +478,10 @@ export class Colony {
    */
   setThreads(threads, archivedIds = new Set(), hiddenProjects = new Set(), knownIds = new Set()) {
     const now = Date.now()
-    const live = liveThreadsForColony(threads, archivedIds, hiddenProjects)
+    const allLive = liveThreadsForColony(threads, archivedIds, hiddenProjects)
+    const live = [...allLive].sort((a, b) => Number(b.running === true) - Number(a.running === true) ||
+      Number(!!b.hasError) - Number(!!a.hasError) || b.lastActivityAt - a.lastActivityAt)
+      .slice(0, this.settings.get('maxAgents') || 100)
 
     // Group by repo, biggest project first so the busiest work lands nearest the middle.
     const byProject = new Map()
@@ -617,7 +622,7 @@ export class Colony {
       this.plotCells.delete(name)
       this.plotCells.set(name, cells)
     }
-    while (this.plotCells.size > LAYOUT_MEMORY) this.plotCells.delete(this.plotCells.keys().next().value)
+    // Retain every saved zone; a large history must not silently evict a layout.
 
     const wanted = new Map()
     for (const [name, cells] of layout) wanted.set(name, `${name}:${cells.map((c) => `${c.q},${c.r}`).join('/')}`)
@@ -636,7 +641,7 @@ export class Colony {
       this.plots.delete(name)
     }
 
-    projects.forEach(([name], index) => {
+    projects.forEach(([name, list], index) => {
       if (this.plots.has(name)) return
       const cells = layout.get(name)
       if (!cells?.length) return
@@ -646,7 +651,7 @@ export class Colony {
       this.plots.set(name, plot)
       this.plotGroup.add(plot.group)
 
-      const label = createLabel(name, accent)
+      const label = createLabel(list[0]?.projectName || name, accent)
       label.position.set(plot.labelAnchor.x, 3.2, plot.labelAnchor.z)
       plot.label = label
       this.labelGroup.add(label)

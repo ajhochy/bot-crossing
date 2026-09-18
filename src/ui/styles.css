@@ -1569,3 +1569,32 @@ kbd {
   }
 }
 .bot-crossing-canvas { cursor: grab; }
+
+/* Checkout inventory inherits the colony panel material and compact control language. */
+.session-filters { padding: 10px 14px; display: grid; gap: 8px; }
+.session-filters input, .session-filters select, .group-label select { width: 100%; min-width: 0; color: var(--text, #e4ebf1); background: #182231; border: 1px solid #526170; border-radius: 6px; padding: 8px; font: inherit; }
+.session-filters input::placeholder { color: #b4c2d1; }
+.session-filters .pair > select { width: 50%; }
+.repo .n small { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 10px; font-weight: 400; color: #b4c2d1; }
+.side .path, .checkout-path { white-space: normal; overflow-wrap: anywhere; user-select: text; }
+.checkouts { margin: 12px 0; }
+.checkout { padding: 10px 0; border-top: 1px solid #526170; }
+.checkout summary { cursor: pointer; line-height: 1.5; }
+.checkout summary span { display: block; color: #c4d0dd; font-size: 11px; }
+.checkout-path { margin-top: 8px; font: 11px/1.5 ui-monospace, monospace; }
+.checkout p, .session-evidence { font-size: 11px; line-height: 1.5; color: #c4d0dd; margin: 8px 0; overflow-wrap: anywhere; }
+.checkout .pair { flex-wrap: wrap; }
+.group-label { display: block; font-size: 11px; margin-top: 10px; }
+.group-label select { margin-top: 6px; }
+.session-evidence { max-height: 95px; overflow: auto; user-select: text; }
+.side .threads { min-height: 110px; }
+.session-filters :focus-visible, .checkout :focus-visible { outline: 2px solid #a9d9ff; outline-offset: 2px; }
+
+.side.drilled .side-body { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.side.drilled .project-detail { flex: none; min-height: 100%; }
+.side.drilled .threads { flex: none; overflow: visible; }
+.checkouts { padding: 0 14px; }
+
+[hidden] { display: none !important; }
+.thread-pop .pair { flex-wrap: wrap; }
+.scan-notice { margin: 0; padding: 8px 14px; font-size: 11px; line-height: 1.5; max-height: 75px; overflow: auto; color: #ffd8bb; }

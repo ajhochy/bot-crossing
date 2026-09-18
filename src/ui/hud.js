@@ -54,7 +54,8 @@ const STAT_DEFS = [
   { key: 'waiting', label: 'need you', cls: 'waiting' },
   { key: 'blocked', label: 'blocked', cls: 'blocked' },
   { key: 'celebrating', label: 'shipped', cls: 'done' },
-  { key: 'agents', label: 'bots', cls: 'idle' },
+  { key: 'conversations', label: 'tasks', cls: 'idle' },
+  { key: 'workers', label: 'workers', cls: 'idle' },
 ]
 
 export class Hud {
@@ -461,6 +462,10 @@ export class Hud {
     on('#btn-new-session', 'click', () => this.actions.newConversation?.())
     on('#btn-reveal', 'click', () => this.actions.revealProject?.())
     on('#btn-copy-path', 'click', () => this.actions.copyProjectPath?.())
+    on('#btn-open-terminal', 'click', () => this.actions.openThread?.('terminal'))
+    on('#filter-query', 'input', (event) => this.actions.filterSessions?.({ query: event.target.value }))
+    on('#filter-harness', 'change', (event) => this.actions.filterSessions?.({ harness: event.target.value }))
+    on('#filter-status', 'change', (event) => this.actions.filterSessions?.({ status: event.target.value }))
     on('#btn-hide-project', 'click', () => this.actions.hideProject?.())
     on('#btn-hidden-toggle', 'click', () => this.toggleHiddenList())
     on('#btn-locate', 'click', () => this.actions.focusProject?.(this.project?.name))
@@ -496,6 +501,7 @@ export class Hud {
       if (this._last['stat:' + def.key] === n) continue
       this._last['stat:' + def.key] = n
       el.querySelector('.n').textContent = String(n)
+      el.setAttribute('aria-label', `${n} ${def.label}`)
       el.dataset.empty = String(n === 0)
     }
   }
@@ -507,7 +513,7 @@ export class Hud {
    */
   setLegend(projects, activeName = null, hidden = [], folded = []) {
     const signature =
-      projects.map((p) => `${p.name}:${p.count}:${p.accent}:${p.urgent ? 1 : 0}`).join('|') +
+      projects.map((p) => `${p.name}:${p.displayName}:${p.count}:${p.workers}:${p.accent}:${p.urgent ? 1 : 0}`).join('|') +
       `~${activeName}~` +
       hidden.map((p) => `${p.name}:${p.count}`).join('|') +
       `~${folded.length}`
@@ -520,17 +526,17 @@ export class Hud {
       const b = document.createElement('button')
       b.type = 'button'
       b.className = 'repo'
-      b.title = `${p.count} thread${p.count === 1 ? '' : 's'} in ${p.name}`
+      b.title = `${p.count} conversations, ${p.workers || 0} workers · ${p.path || p.displayName || p.name}`
       b.setAttribute('aria-pressed', String(p.name === activeName))
       b.innerHTML =
         `<i class="swatch" style="background:${hex(p.accent)};color:${hex(p.accent)}"></i>` +
-        `<span class="n">${escapeHtml(p.name)}</span>` +
+        `<span class="n">${escapeHtml(p.displayName || p.name)}${p.path ? `<small>${escapeHtml(shortPath(p.path))}</small>` : ''}</span>` +
         (p.urgent ? '<i class="alarm"></i>' : '') +
-        `<span class="count">${p.count}</span>`
+        `<span class="count">${p.count}${p.workers ? ` + ${p.workers}w` : ''}</span>`
       b.addEventListener('click', () => this.actions.pickProject?.(p.name))
       wrap.appendChild(b)
     }
-    this.$('.sec-head span').textContent = `${projects.length} repo${projects.length === 1 ? '' : 's'}`
+    this.$('.sec-head span').textContent = `${projects.length} project${projects.length === 1 ? '' : 's'}`
 
     // The hidden list is its own block at the foot of the sidebar: collapsed by default, because
     // the whole point of hiding a repo is not to look at it.
@@ -544,8 +550,8 @@ export class Hud {
       row.className = 'repo hidden-repo'
       row.innerHTML =
         `<i class="swatch" style="background:${hex(accent)};color:${hex(accent)}"></i>` +
-        `<span class="n">${escapeHtml(p.name)}</span>` +
-        `<span class="count">${p.count}</span>`
+        `<span class="n">${escapeHtml(p.displayName || p.name)}${p.path ? `<small>${escapeHtml(shortPath(p.path))}</small>` : ''}</span>` +
+        `<span class="count">${p.count}${p.workers ? ` + ${p.workers}w` : ''}</span>`
       const show = document.createElement('button')
       show.type = 'button'
       show.className = 'btn ghost show-repo'
@@ -619,7 +625,7 @@ export class Hud {
     // you leave the panel open.
     const signature =
       `${project.name}~${project.path}~${project.accent}~${project.selectedId}~${Math.floor(Date.now() / 60000)}~` +
-      project.threads.map((t) => `${t.id}:${t.status}:${t.title}:${t.lastActivityAt}`).join('|')
+      JSON.stringify([project.threads.map(t => [t.id,t.status,t.title,t.lastActivityAt,t.parentId,t.checkoutId]), project.checkouts, project.overrides, project.filters])
     panel.classList.add('drilled')
     if (this._last.project === signature) return
     this._last.project = signature
@@ -627,53 +633,120 @@ export class Hud {
     const swatch = this.$('.side .who .swatch')
     swatch.style.background = hex(project.accent)
     swatch.style.color = hex(project.accent) // the halo is `currentColor`
-    this.$('.side .name').textContent = project.name
+    this.$('.side .name').textContent = project.displayName || project.name
     const path = this.$('.side .path')
-    path.textContent = project.path ? shortPath(project.path) : 'folder unknown'
+    path.textContent = project.path || 'Folder unknown'
     path.title = project.path || ''
     // Nothing to open a new thread in, and nothing to reveal, without a folder on disk.
-    this.$('#btn-new-session').disabled = !project.path
-    this.$('#btn-reveal').disabled = !project.path
+    this.$('#btn-new-session').disabled = !project.path || !project.pathAvailable
+    this.$('#btn-reveal').disabled = !project.path || !project.pathAvailable
     this.$('#btn-copy-path').disabled = !project.path
 
-    const n = project.threads.length
-    const waiting = project.threads.filter((t) => t.status === 'waiting' || t.status === 'blocked').length
-    this.$('.side .threads-head').innerHTML =
-      `<span>${n} thread${n === 1 ? '' : 's'}</span>` + (waiting ? `<span class="want">${waiting} need you</span>` : '')
-
+    const checkouts = this.$('.checkouts')
+    checkouts.innerHTML = ''
+    const allCheckouts = document.createElement('button')
+    allCheckouts.className = 'btn ghost'
+    allCheckouts.textContent = 'All checkouts'
+    allCheckouts.setAttribute('aria-pressed', String(!project.filters.checkout))
+    allCheckouts.onclick = () => this.actions.selectCheckout?.('')
+    checkouts.appendChild(allCheckouts)
+    for (const checkout of project.checkouts || []) {
+      const row = document.createElement('details')
+      row.className = 'checkout'
+      row.open = checkout.id === project.selectedCheckout
+      const members = project.allThreads.filter(t => t.checkoutId === checkout.id)
+      const active = members.filter(t => t.running === true)
+      const harnesses = [...new Set(members.map(t => t.harnessName || t.harness))]
+      const dirty = checkout.dirty === true ? 'Uncommitted / untracked' : checkout.dirty === false ? 'Clean' : 'Git state unknown'
+      const activity = checkout.missing ? 'Missing path' : active.length ? `${active.length} active agent${active.length === 1 ? '' : 's'}` :
+        members.some(t => t.activity === 'unknown' || t.running == null) ? 'Activity unknown' : 'Quiet'
+      row.innerHTML = `<summary><strong>${escapeHtml(checkout.main ? 'Main checkout' : checkout.kind === 'git' ? 'Worktree' : 'Directory')}</strong>` +
+        `<span>${escapeHtml(checkout.branch || '')} · ${escapeHtml(activity)}</span></summary>` +
+        `<div class="checkout-path">${escapeHtml(checkout.path)}</div>` +
+        `<p>${escapeHtml(dirty)}${active.length > 1 ? ' · Shared checkout: concurrent observed agents' : ''}</p>` +
+        `<p>${escapeHtml(harnesses.join(', ') || 'No recorded conversations')} · ${members.length} recorded sessions</p>` +
+        `<p class="evidence">${escapeHtml(checkout.evidence || '')}</p>`
+      const controls = document.createElement('div')
+      controls.className = 'pair'
+      const inspect = document.createElement('button')
+      inspect.className = 'btn'; inspect.textContent = 'Inspect checkout'
+      inspect.onclick = () => this.actions.selectCheckout?.(checkout.id)
+      controls.appendChild(inspect)
+      const copy = document.createElement('button')
+      copy.className = 'btn'; copy.textContent = 'Copy path'
+      copy.onclick = () => this.actions.copyPath?.(checkout.path)
+      controls.appendChild(copy)
+      const reveal = document.createElement('button')
+      reveal.className = 'btn'; reveal.textContent = FILE_MANAGER; reveal.disabled = checkout.missing
+      reveal.title = checkout.missing ? 'Recorded folder is missing' : `Reveal ${checkout.path}`
+      reveal.onclick = () => this.actions.revealPath?.(checkout.path)
+      controls.appendChild(reveal)
+      row.appendChild(controls)
+      const label = document.createElement('label')
+      label.className = 'group-label'; label.textContent = 'Group this checkout with project'
+      const grouping = document.createElement('select')
+      grouping.setAttribute('aria-label', `Group checkout ${checkout.path}`)
+      const automatic = document.createElement('option')
+      automatic.value = ''; automatic.textContent = 'Automatic Git grouping (reset override)'
+      grouping.appendChild(automatic)
+      for (const p of project.options) {
+        const option = document.createElement('option')
+        option.value = p.id; option.textContent = `${p.name} · ${p.path || p.id}`
+        grouping.appendChild(option)
+      }
+      grouping.value = project.overrides[checkout.id] || ''
+      grouping.onchange = () => this.actions.groupCheckout?.(checkout.id, grouping.value)
+      label.appendChild(grouping); row.appendChild(label)
+      checkouts.appendChild(row)
+    }
+    const roots = project.threads.filter(t => !t.parentId).length
+    const workers = project.threads.length - roots
+    this.$('.side .threads-head').textContent = `${roots} conversations · ${workers} workers`
     const list = this.$('.side .threads')
-    // A poll rewrites these rows every time a live thread's timestamp moves. Losing your
-    // place in a forty-thread repo every fifteen seconds would make the list unusable.
     const scroll = list.scrollTop
     list.innerHTML = ''
+    const nodes = new Map(project.allThreads.map(t => [t.id, t]))
+    const visible = new Set(project.threads.map(t => t.id))
+    const ordered = []
+    const emitted = new Set()
+    const children = new Map()
     for (const t of project.threads) {
-      const b = document.createElement('button')
-      b.type = 'button'
-      b.className = `thread ${statusClass(t.status)}`
-      b.setAttribute('aria-pressed', String(t.id === project.selectedId))
-      b.title = STATUS_LABEL[t.status] || t.status
-      b.innerHTML =
-        '<i class="pip"></i>' +
-        `<span class="t">${escapeHtml(t.title || 'Untitled thread')}</span>` +
-        `<span class="when">${ago(t.lastActivityAt)}</span>` +
-        (t.worktree ? `<span class="wt">⑂ ${escapeHtml(t.worktree)}</span>` : '')
-      b.addEventListener('click', () => this.actions.focusThread?.(t.id))
-      list.appendChild(b)
-      // A long repo can hide the astronaut you just clicked in the world. Scrolled by hand
-      // rather than with `scrollIntoView`, which walks up the ancestors and will happily
-      // scroll the *page* — and a page that can scroll at all is one keystroke away from
-      // the whole HUD sitting sideways with nothing to put it back.
-      if (t.id === project.selectedId && this._scrolledTo !== t.id) {
-        this._scrolledTo = t.id
-        const row = b
-        requestAnimationFrame(() => {
-          const top = row.offsetTop
-          const bottom = top + row.offsetHeight
-          if (top < list.scrollTop) list.scrollTop = top
-          else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight
-        })
-      }
+      if (!children.has(t.parentId)) children.set(t.parentId, [])
+      children.get(t.parentId).push(t)
     }
+    const append = (t, depth = 0) => {
+      if (emitted.has(t.id)) return
+      emitted.add(t.id)
+      if (visible.has(t.id)) ordered.push({ ...t, depth })
+      for (const child of children.get(t.id) || []) append(child, depth + 1)
+    }
+    for (const t of project.threads) if (!t.parentId || !visible.has(t.parentId)) append(t)
+    for (const t of project.threads) append(t)
+    const draw = (limit) => {
+      list.innerHTML = ''
+      for (const t of ordered.slice(0, limit)) {
+        const b = document.createElement('button')
+        b.type = 'button'; b.className = `thread ${statusClass(t.status)}`
+        b.style.paddingLeft = `${12 + Math.min(t.depth, 4) * 12}px`
+        b.setAttribute('aria-pressed', String(t.id === project.selectedId))
+        const parent = t.parentId && nodes.get(t.parentId)
+        b.title = `${t.cwd || ''} · ${t.activityEvidence || STATUS_LABEL[t.status] || t.status || ''}`
+        b.innerHTML = '<i class="pip"></i>' +
+          `<span class="t">${escapeHtml(t.title || 'Untitled conversation')}</span>` +
+          `<span class="when">${ago(t.lastActivityAt)}</span>` +
+          `<span class="wt">${escapeHtml([t.parentId ? 'Worker' : 'Conversation', t.harnessName, t.agentName || t.agentNickname || t.profile, t.gitBranch, t.activity === 'unknown' ? 'Activity unknown' : t.activity, t.archived ? 'Archived' : ''].filter(Boolean).join(' · '))}</span>` +
+          (t.parentId ? `<span class="wt">Parent: ${escapeHtml(parent?.title || t.parentTitle || 'unavailable')} ${parent?.archived ? '(archived)' : ''}</span>` : '')
+        b.onclick = () => this.actions.focusThread?.(t.id)
+        list.appendChild(b)
+      }
+      if (ordered.length > limit) {
+        const more = document.createElement('button')
+        more.className = 'btn'; more.textContent = `Show more (${ordered.length - limit} remaining)`
+        more.onclick = () => draw(limit + 100); list.appendChild(more)
+      }
+      if (!ordered.length) list.textContent = 'No sessions match these filters.'
+    }
+    draw(100)
     list.scrollTop = scroll
     if (!project.selectedId) this._scrolledTo = null
   }
@@ -719,11 +792,22 @@ export class Hud {
     // astronaut needs its size sixty times a second, and asking the layout for it that
     // often is how a HUD starts costing frames.
     this._cardSize = { w: card.offsetWidth, h: card.offsetHeight }
-    this.$('#btn-open').disabled = thread.canOpen === false
+    const capability = thread.openCapabilities?.[this.settings.get('openIn')]
+    this.$('#btn-open').disabled = thread.canOpen === false || capability?.available === false
+    this.$('#btn-open').title = capability?.reason || thread.openUnavailableReason || thread.navigationReason || 'Open this conversation in its harness'
+    this.$('#btn-open-terminal').hidden = !thread.openCapabilities?.terminal?.available || this.settings.get('openIn') === 'terminal'
+    this.$('.session-evidence').textContent = [thread.cwd, thread.agentName || thread.agentNickname, thread.profile,
+      thread.activityEvidence, capability?.available === false ? capability.reason : '',
+      thread.canOpen === false ? thread.openUnavailableReason || thread.navigationReason || 'Individual conversation navigation is unavailable for this harness.' : '',
+      thread.unread == null ? 'Read status unknown; mark viewed to track changes here.' : ''].filter(Boolean).join(' · ')
+    const relation = this.$('.session-parent')
+    relation.hidden = !thread.parentId
+    relation.textContent = thread.parentId ? 'Inspect parent task' : ''
+    relation.onclick = () => this.actions.focusThread?.(thread.parentId)
     // Only offered when there is something to dismiss. A third button on every card would
     // crowd the two that are always worth having, and "Viewed" on a thread that is not asking
     // for anything is a control with no effect.
-    this.$('#btn-viewed').hidden = !thread.unread
+    this.$('#btn-viewed').hidden = thread.unread === false
   }
 
   /**
@@ -1074,7 +1158,15 @@ const TEMPLATE = `
   </header>
 
   <div class="stats"></div>
+  <p class="scan-notice" role="status" hidden></p>
 
+  <div class="session-filters">
+    <input id="filter-query" type="search" aria-label="Search projects and sessions" placeholder="Find project, branch, path or task">
+    <div class="pair">
+      <select id="filter-harness" aria-label="Filter by harness"><option value="">All harnesses</option><option value="claude-code">Claude Code</option><option value="codex">Codex</option><option value="hermes">Hermes</option><option value="rhythm">Rhythm</option><option value="opencode">OpenCode</option><option value="cursor">Cursor</option><option value="antigravity">Antigravity</option><option value="kilocode">Kilo Code</option></select>
+      <select id="filter-status" aria-label="Filter by status"><option value="">All activity</option><option value="active">Active</option><option value="quiet">Quiet</option><option value="unknown">Unknown</option><option value="attention">Needs attention</option><option value="worker">Workers</option><option value="archived">Archived</option></select>
+    </div>
+  </div>
   <div class="side-body">
     <div class="projects-pane">
       <div class="sec-head"><span>Repos</span></div>
@@ -1105,6 +1197,7 @@ const TEMPLATE = `
         </div>
         <button class="btn" id="btn-hide-project" title="Hide this repo from the colony — does not archive its threads">${ICON.eyeOff} Hide from colony</button>
       </div>
+      <div class="checkouts"></div>
       <div class="threads-head"></div>
       <div class="threads"></div>
     </div>
@@ -1138,9 +1231,12 @@ const TEMPLATE = `
     <button class="btn icon ghost" id="btn-follow" title="Follow selected bot" aria-label="Follow selected bot" aria-pressed="false">${ICON.locate}</button>
     <button class="btn icon ghost" id="btn-deselect" title="Deselect (Esc)">${ICON.close}</button>
   </div>
+  <p class="session-evidence"></p>
+  <button class="btn ghost session-parent" hidden></button>
   <div class="progress"><i></i></div>
   <div class="pair">
     <button class="btn primary" id="btn-open" title="Open this thread in the harness it came from (Enter)">${ICON.open} Open</button>
+    <button class="btn" id="btn-open-terminal">Resume in terminal</button>
     <button class="btn" id="btn-viewed" title="Stop this thread asking for you until it moves on again (V)">${ICON.eye} Viewed</button>
     <button class="btn" id="btn-archive" title="Archive — this bot walks back to the ship (A)">${ICON.archive} Archive</button>
   </div>

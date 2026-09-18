@@ -57,6 +57,7 @@ function pilotDBs() {
   } catch {
     return dbs
   }
+  dirs.sort((a, b) => a.name.localeCompare(b.name))
   for (const d of dirs) {
     if (!d.isDirectory()) continue
     const file = path.join(PROFILES_DIR, d.name, 'state.db')
@@ -72,6 +73,83 @@ function pilotDBs() {
 
 const openRead = (file) => new DatabaseSync(file, { readOnly: true })
 
+/** Failures are scoped to one profile, but still visible through `/api/harnesses`. */
+let lastDiagnostics = []
+
+const columnsOf = (db, table) =>
+  new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name))
+
+const selected = (columns, name, fallback = 'NULL') =>
+  `${columns.has(name) ? `s.${name}` : fallback} AS ${name}`
+
+/**
+ * Hermes upgrades every profile independently. A profile that has not run since a new column or
+ * table shipped therefore remains a valid store, not a reason to pin the query to the oldest
+ * schema. Build the small differences from SQLite's own table metadata instead.
+ */
+function threadQuery(db) {
+  const tables = new Set(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name)
+  )
+  if (!tables.has('sessions')) throw new Error('missing sessions table')
+  const sessions = columnsOf(db, 'sessions')
+  if (!sessions.has('id')) throw new Error('sessions table is missing required id column')
+
+  const fields = [
+    ['id'],
+    ['title'],
+    ['model'],
+    ['source', "''"],
+    ['cwd', "''"],
+    ['git_branch', "''"],
+    ['git_repo_root', "''"],
+    ['started_at', '0'],
+    ['ended_at'],
+    ['message_count', '0'],
+    ['input_tokens', '0'],
+    ['output_tokens', '0'],
+    ['archived', '0'],
+    ['last_activity_at'],
+    ['last_read_at'],
+  ].map(([name, fallback]) => selected(sessions, name, fallback))
+
+  let firstUser = 'NULL AS first_user'
+  if (tables.has('messages')) {
+    const messages = columnsOf(db, 'messages')
+    if (['session_id', 'role', 'content'].every((name) => messages.has(name))) {
+      const active = messages.has('active') ? ' AND m.active = 1' : ''
+      const order = messages.has('id') ? 'm.id' : messages.has('timestamp') ? 'm.timestamp' : 'm.rowid'
+      firstUser = `(SELECT substr(m.content, 1, 280) FROM messages m
+        WHERE m.session_id = s.id AND m.role = 'user'${active}
+        ORDER BY ${order} ASC LIMIT 1) AS first_user`
+    }
+  }
+
+  const leases = tables.has('session_turn_leases') ? columnsOf(db, 'session_turn_leases') : new Set()
+  const hasTurnLeases = ['conversation_id', 'expires_at'].every((name) => leases.has(name))
+  const turnActive = hasTurnLeases
+    ? `EXISTS (SELECT 1 FROM session_turn_leases l
+         WHERE l.conversation_id = s.id AND l.expires_at > unixepoch()) AS turn_active`
+    : '0 AS turn_active'
+
+  const where = []
+  if (sessions.has('hidden')) where.push('COALESCE(s.hidden, 0) = 0')
+  if (sessions.has('source')) where.push("COALESCE(s.source, '') != 'cron'")
+  const recency = ['last_activity_at', 'ended_at', 'started_at']
+    .filter((name) => sessions.has(name))
+    .map((name) => `s.${name}`)
+  const order = recency.length ? `COALESCE(${recency.join(', ')}, 0)` : 's.id'
+
+  return `
+    SELECT ${fields.join(',\n           ')},
+           ${firstUser},
+           ${turnActive}
+      FROM sessions s
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY ${order} DESC
+  `
+}
+
 function toThread(row, pilot) {
   const root = row.git_repo_root || row.cwd || ''
   // Sessions run from the agent home (or with no cwd) are all the same
@@ -85,9 +163,14 @@ function toThread(row, pilot) {
   const createdAt = Math.round((row.started_at || 0) * 1000)
   const lastActivityAt = Math.round(((row.last_activity_at || row.ended_at || row.started_at) || 0) * 1000)
   const tokens = (row.input_tokens || 0) + (row.output_tokens || 0)
+  const running = row.turn_active === 1 ? true : row.ended_at != null ? false : null
+  const activity = running === true ? 'active' : running === false ? 'quiet' : 'unknown'
   return {
     id: `hermes:${pilot}:${row.id}`,
     pilot,
+    // Keep the legacy `main` pilot in ids/refs for saved layout compatibility while exposing
+    // Hermes's canonical profile id to newer profile-aware views.
+    profile: pilot === 'main' ? 'default' : pilot,
     title: row.title || 'Untitled thread',
     preview: (row.first_user || '').trim().slice(0, 280),
     project,
@@ -100,7 +183,9 @@ function toThread(row, pilot) {
     createdAt,
     lastActivityAt,
     lastFocusedAt: 0,
-    running: row.ended_at == null,
+    running,
+    activity,
+    activityEvidence: activity === 'active' ? 'turn-lease' : activity === 'quiet' ? 'ended' : 'unavailable',
     unread: Boolean(
       row.last_activity_at && row.last_read_at && row.last_activity_at > row.last_read_at
     ),
@@ -122,37 +207,36 @@ async function detect() {
   }
 }
 
-const THREAD_SQL = `
-      SELECT s.id, s.title, s.model, s.source, s.cwd, s.git_branch, s.git_repo_root,
-             s.started_at, s.ended_at, s.message_count,
-             s.input_tokens, s.output_tokens, s.archived,
-             s.last_activity_at, s.last_read_at,
-             (SELECT substr(m.content, 1, 280) FROM messages m
-               WHERE m.session_id = s.id AND m.role = 'user' AND m.active = 1
-               ORDER BY m.id ASC LIMIT 1) AS first_user
-        FROM sessions s
-       -- Cron executions are scheduled runs, not threads: each one would
-       -- stand on the map as an astronaut nobody ever talks to. Skip them.
-       WHERE s.hidden = 0 AND s.source != 'cron'
-       ORDER BY COALESCE(s.last_activity_at, s.ended_at, s.started_at) DESC
-`
-
 async function scanThreads() {
   const out = []
+  lastDiagnostics = []
   for (const { pilot, file } of pilotDBs()) {
     let db
     try {
       db = openRead(file)
-    } catch {
+    } catch (error) {
+      const detail = `profile "${pilot}": ${error?.message || error}`
+      lastDiagnostics.push(detail)
+      console.warn(`bot-crossing: Hermes ${detail}`)
       continue
     }
     try {
-      for (const row of db.prepare(THREAD_SQL).all()) out.push(toThread(row, pilot))
+      for (const row of db.prepare(threadQuery(db)).all()) out.push(toThread(row, pilot))
+    } catch (error) {
+      // Profiles are independent Hermes installations and upgrade independently. One unreadable
+      // store costs only that pilot's threads; naming it here keeps partial success diagnosable.
+      const detail = `profile "${pilot}": ${error?.message || error}`
+      lastDiagnostics.push(detail)
+      console.warn(`bot-crossing: Hermes ${detail}`)
     } finally {
       db.close()
     }
   }
   return out
+}
+
+function diagnostic() {
+  return lastDiagnostics.length ? `Some Hermes profiles could not be read: ${lastDiagnostics.join('; ')}` : ''
 }
 
 function openThread() {
@@ -167,6 +251,7 @@ export default {
   id: 'hermes',
   name: 'Hermes',
   detect,
+  diagnostic,
   scanThreads,
   openThread,
   newSession,

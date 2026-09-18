@@ -1,0 +1,113 @@
+{
+  "issue": null,
+  "generated": "2026-09-18",
+  "criteria": [
+    {
+      "criterion_id": "P1-1",
+      "text": "Linked worktrees share project identity with exact distinct checkouts across harnesses",
+      "mode": "integration",
+      "test_file": "test/projects.test.mjs",
+      "test_id": "P1-1",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P1-2",
+      "text": "Independent same-name clone stays separate; symlink and nested cwd share checkout",
+      "mode": "integration",
+      "test_file": "test/projects.test.mjs",
+      "test_id": "P1-2",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P1-4",
+      "text": "Previously observed missing checkout keeps identity and reports missing; non-Git is explicit",
+      "mode": "integration",
+      "test_file": "test/projects.test.mjs",
+      "test_id": "P1-4",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P1-5",
+      "text": "Discovery preserves branches, worktree registration, index and untracked contents",
+      "mode": "integration",
+      "test_file": "test/projects.test.mjs",
+      "test_id": "P1-5",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P1-UI",
+      "text": "Grouping/reset, filters and exact session navigation survive reload",
+      "mode": "manual",
+      "status": "pass",
+      "evidence": "Rendered fixture grouping/reset/reload, unused checkout, exact cwd, filters and failed-save recovery"
+    },
+    {
+      "criterion_id": "P2-1",
+      "text": "Children attach exactly once, including nested/orphan/archived parent cases",
+      "mode": "integration",
+      "test_file": "test/codex-graph.test.mjs",
+      "test_id": "P2-1",
+      "status": "planned"
+    },
+    {
+      "criterion_id": "P2-2",
+      "text": "Running/completed/interrupted/unknown transitions are represented honestly",
+      "mode": "integration",
+      "test_file": "test/codex-graph.test.mjs",
+      "test_id": "P2-2",
+      "status": "planned"
+    },
+    {
+      "criterion_id": "P2-3",
+      "text": "Parent and worker navigation preserve session and checkout",
+      "mode": "integration",
+      "test_file": "test/codex-graph.test.mjs",
+      "test_id": "P2-3",
+      "status": "planned"
+    },
+    {
+      "criterion_id": "P2-LIVE",
+      "text": "Live Codex parent/worker graph and navigation capability boundaries inspected",
+      "mode": "manual",
+      "status": "planned",
+      "evidence": "Current task appears once with three workers; installed CLI help and app navigation API inspected",
+      "limitation": "CLI terminal resume not exercised end to end; OS desktop UUID targeting unverified and disabled"
+    },
+    {
+      "criterion_id": "P3-1",
+      "text": "Rhythm parent/children appear once, standalone OpenCode remains",
+      "mode": "integration",
+      "test_file": "test/rhythm.test.mjs",
+      "test_id": "P3-1",
+      "status": "planned"
+    },
+    {
+      "criterion_id": "P3-2",
+      "text": "Profile identity and offline/errors remain understandable",
+      "mode": "integration",
+      "test_file": "test/rhythm.test.mjs",
+      "test_id": "P3-2",
+      "status": "planned"
+    },
+    {
+      "criterion_id": "P3-3",
+      "text": "Rhythm navigation uses a verified mechanism or says unavailable",
+      "mode": "integration",
+      "test_file": "test/rhythm.test.mjs",
+      "test_id": "P3-3",
+      "status": "planned"
+    },
+    {
+      "criterion_id": "P3-LIVE",
+      "text": "Live Rhythm engine mapping and persisted offline fallback inspected; unsupported navigation is explicit",
+      "mode": "manual",
+      "status": "planned",
+      "evidence": "8141 Rhythm records, 7952 extant engine claims deduplicated, independent OpenCode retained; direct read-only store fixtures",
+      "limitation": "No verified external opener exists; installed packaged Rhythm runtime was not launched or qualified"
+    }
+  ],
+  "stack": "javascript",
+  "not_tested": [
+    "P2 and P3 are dependent slices; see current-plan.md"
+  ]
+}

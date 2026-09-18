@@ -7,6 +7,7 @@
  * in `server/harnesses/` — see the README there.
  */
 import { HARNESSES, detectedHarnesses, harnessById } from './harnesses/index.mjs'
+export { createProjectResolver } from './projects.mjs'
 
 /**
  * A project's ground is keyed on its name, and a name is the last segment of its path — so two
@@ -79,35 +80,79 @@ export function disambiguateProjects(threads) {
  * A harness that throws is skipped rather than allowed to take the scan down with it: one
  * broken adapter should cost you that harness's threads, not the whole colony.
  */
-export async function scanThreads() {
+let pendingScan = null
+const scanFailures = new Map()
+const lastGood = new Map()
+export function scanThreads() {
+  if (!pendingScan) pendingScan = scanAll().finally(() => { pendingScan = null })
+  return pendingScan
+}
+
+export function reconcileHarnessDuplicates(threads) {
+  const engine = new Map(
+    threads.filter(t => t.harness === 'opencode').map(t => [t.id, t])
+  )
+  const claimed = new Set(
+    threads.filter(t => t.harness === 'rhythm').flatMap(t => t.dedupeIds || [])
+  )
+
+  return threads.flatMap((thread) => {
+    if (thread.harness === 'opencode' && claimed.has(thread.id)) return []
+    if (thread.harness !== 'rhythm' || !thread.stale) return [thread]
+
+    // Keep Rhythm's durable local id, profile, checkout, and parent graph during an adapter
+    // failure. When its mapped engine row is current, overlay only the volatile activity facts so
+    // one worker stays on the map with fresh behavior instead of a second raw OpenCode copy.
+    const current = (thread.dedupeIds || [])
+      .map(id => engine.get(id))
+      .find(candidate => candidate && !candidate.stale)
+    if (!current) return [{ ...thread, staleMetadata: true }]
+    return [{
+      ...thread,
+      activity: current.activity,
+      running: current.running,
+      hasError: current.hasError,
+      lastActivityAt: current.lastActivityAt || thread.lastActivityAt,
+      activityEvidence: `Rhythm metadata stale; ${current.activityEvidence || 'current OpenCode store activity'}`,
+      engineActivityEvidence: current.activityEvidence || 'current OpenCode store activity',
+      staleMetadata: true,
+    }]
+  })
+}
+
+async function scanAll() {
   const harnesses = await detectedHarnesses()
   const lists = await Promise.all(
     harnesses.map(async (h) => {
       try {
         const threads = await h.scanThreads()
-        return threads.map((t) => ({ ...t, harness: h.id, harnessName: h.name }))
+        const stamped = threads.map((t) => ({ ...t, harness: h.id, harnessName: h.name }))
+        scanFailures.delete(h.id)
+        lastGood.set(h.id, stamped)
+        return stamped
       } catch (err) {
         console.warn(`bot-crossing: harness "${h.id}" failed to scan —`, err?.message || err)
-        return []
+        scanFailures.set(h.id, `${h.name}: scan failed; previous observations may be stale`)
+        return (lastGood.get(h.id) || []).map(t => ({ ...t, stale: true, activity: 'unknown', running: null,
+          activityEvidence: 'Scan failed; last successful observation retained' }))
       }
     })
   )
-  const threads = disambiguateProjects(lists.flat())
+  const threads = disambiguateProjects(reconcileHarnessDuplicates(lists.flat()))
   threads.sort((a, b) => b.lastActivityAt - a.lastActivityAt)
   return threads
 }
 
 /** What the HUD shows in the harness list: who is installed, and what they can do. */
-export async function harnessStatus() {
-  const detected = new Set((await detectedHarnesses()).map((h) => h.id))
+export async function harnessStatus(harnesses = HARNESSES) {
   return Promise.all(
-    HARNESSES.map(async (h) => ({
+    harnesses.map(async (h) => ({
       id: h.id,
       name: h.name,
-      detected: detected.has(h.id),
+      detected: await Promise.resolve().then(() => h.detect()).catch(() => false),
       // Optional. An adapter that can see its harness but cannot read it — wrong Node, a store
       // it does not understand — says why here instead of failing silently on every poll.
-      error: h.diagnostic ? await h.diagnostic().catch(() => '') : '',
+      error: scanFailures.get(h.id) || (h.diagnostic ? await Promise.resolve().then(() => h.diagnostic()).catch(() => '') : ''),
     }))
   )
 }

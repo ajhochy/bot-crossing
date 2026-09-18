@@ -77,7 +77,7 @@ test('/api/open with via: terminal and no CLI is a 400 that names the CLI', posi
   // Codex rather than Claude Code: this machine may well have a real `claude` in an install dir.
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'bot-crossing-nocli-'))
   try {
-    await withEnv({ PATH: dir }, () =>
+    await withEnv({ PATH: dir, BOT_CROSSING_CODEX_CLI: '' }, () =>
       withServer(async ({ call }) => {
         const body = { harness: 'codex', ref: { sessionId: UUID, cwd: dir }, via: 'terminal' }
         const res = await post(call, '/api/open', body)
