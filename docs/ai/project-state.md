@@ -1,19 +1,19 @@
 # Project state
 
 ## Current focus
-Priority 1: Git project/checkout identity, inspector/grouping, saved state, and Hermes schema compatibility.
+Priority 2 adds the Codex durable parent/worker graph and honest incremental lifecycle evidence to the project/checkout foundation.
 
 ## Active branch / PR
-`codex/project-checkout-identity` against fork main. Draft PR prepared; later Codex and Rhythm slices depend on this branch.
+`codex/codex-session-graph` depends on `codex/project-checkout-identity` (draft fork PR #1).
 
 ## In progress
-Dependent adapter slices remain separate from this commit.
+Rhythm/OpenCode integration remains a separate dependent slice.
 
 ## Risks / known issues
-Missing paths keep previously cached identity; entire moved clones need explicit grouping. Ambiguous legacy layout names are retained for review. Dirty-state checks are bounded and say unknown until inspected. Existing harness navigation is not requalified by this slice.
+Exact Codex CLI resume syntax was checked against installed help; terminal resume was not exercised end to end. The app's internal navigation API selected a worker and its parent, but OS UUID deep-link targeting remains unverified and disabled. Synthetic fixtures cover transitions that were not forced in production.
 
 ## Test status
-161 tests and production build passed against the isolated staged tree. Rendered fixture checks cover grouping/reset/reload, exact cwd, missing and unused worktrees, filters and graceful failed-save recovery. Live resolver sample: 408 projects / 573 checkouts, cold 43 Git commands, warm zero. No CI workflow is configured.
+169 tests and production build pass on the isolated staged tree. Live current task appears once with three workers; 397 workers have nickname metadata and no worker remains Untitled thread. Oversized lifecycle and partial-write cases have regression coverage. No CI workflow configured.
 
 ## Next step
-Review this foundation, then the dependent Codex and Rhythm draft PRs. No merges or harness writes.
+Review after PR #1; then review the Rhythm draft. No merges or harness writes.
