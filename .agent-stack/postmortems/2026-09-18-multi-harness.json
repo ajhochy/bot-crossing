@@ -1,0 +1,162 @@
+{
+  "run_id": "2026-09-18-multi-harness",
+  "issue": null,
+  "date": "2026-09-18",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "P1-1",
+      "text": "Linked worktrees share project identity with exact distinct checkouts across harnesses",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P1-2",
+      "text": "Independent same-name clone stays separate; symlink and nested cwd share checkout",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P1-4",
+      "text": "Previously observed missing checkout keeps identity and reports missing; non-Git is explicit",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P1-5",
+      "text": "Discovery preserves branches, worktree registration, index and untracked contents",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P1-UI",
+      "text": "Grouping/reset, filters and exact session navigation survive reload",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Rendered fixture grouping/reset/reload, unused checkout, exact cwd, filters and failed-save recovery"
+    },
+    {
+      "criterion_id": "P2-1",
+      "text": "Children attach exactly once, including nested/orphan/archived parent cases",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P2-2",
+      "text": "Running/completed/interrupted/unknown transitions are represented honestly",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P2-3",
+      "text": "Parent and worker navigation preserve session and checkout",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P2-LIVE",
+      "text": "Live Codex parent/worker graph and navigation capability boundaries inspected",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Current task appears once with three workers; installed CLI help and app navigation API inspected"
+    },
+    {
+      "criterion_id": "P3-1",
+      "text": "Rhythm parent/children appear once, standalone OpenCode remains",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P3-2",
+      "text": "Profile identity and offline/errors remain understandable",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P3-3",
+      "text": "Rhythm navigation uses a verified mechanism or says unavailable",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Automated fixture contract; exact evidence in run report"
+    },
+    {
+      "criterion_id": "P3-LIVE",
+      "text": "Live Rhythm engine mapping and persisted offline fallback inspected; unsupported navigation is explicit",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "8141 Rhythm records, 7952 extant engine claims deduplicated, independent OpenCode retained; direct read-only store fixtures"
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow-orchestrator",
+        "description": "TodoWrite was unavailable; the checked-in acceptance plan tracked the checklist instead.",
+        "detected_by": "Available tool schema and current-plan.md"
+      }
+    ]
+  },
+  "implementation_files": [
+    "server/projects.mjs",
+    "server/api.mjs",
+    "server/scan.mjs",
+    "server/harnesses/codex.mjs",
+    "server/harnesses/hermes.mjs",
+    "server/harnesses/rhythm.mjs",
+    "server/harnesses/opencode.mjs",
+    "src/main.js",
+    "src/ui/hud.js",
+    "src/game/projects.js"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep HTTP smoke against all installed adapters and rendered grouping/reset checks alongside synthetic contracts."
+}

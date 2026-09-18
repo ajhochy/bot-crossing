@@ -4,11 +4,13 @@
 
 Every coding-agent thread on this machine is a little bot. They walk out of the ship, claim
 a plot for their repo, and build something. When one needs you it stops and holds a `?` over
-its head; click it and the thread opens back in whichever harness it came from.
+its head; click it to inspect the thread, then use Open when its harness reports an available
+way back.
 
 It reads the harness's own files, on your own machine. Nothing is uploaded, there is no
-account, and **it never writes to a harness at all** — `data/colony.json`, where the map lives,
-is the only file it writes anywhere.
+account, and **it never writes to a harness at all**. It writes only its own files:
+`data/colony.json` for colony preferences and `data/identities.json` for its project and
+checkout identity cache.
 
 > **Status:** published as-is. I built this for myself and cannot promise to maintain it —
 > issues and PRs are welcome but may go unanswered, and forking is an entirely reasonable
@@ -27,12 +29,11 @@ second process. For a built version, `npm start` (build + serve) or `npm run ser
 `dist/` already exists. Binds to `127.0.0.1` by default, and answers only its own page — see
 [Keeping it local](#keeping-it-local).
 
-**macOS, Linux and Windows.** Opening a thread, revealing a folder and starting a new session
-all go through a `harness://` deep link handed to the OS opener — `open(1)` on macOS,
-`xdg-open` on Linux, ShellExecute on Windows. The scanning half was portable already. On Linux,
-where a desktop app often is not installed, the scheme is checked first and a terminal running
-the harness's own CLI opens instead when nothing answers it.
-A setting, *Open threads in*, makes the terminal the first choice rather than the fallback, on all three.
+**macOS, Linux and Windows.** Revealing a folder goes through the OS opener — `open(1)` on
+macOS, `xdg-open` on Linux, ShellExecute on Windows. Thread and new-session navigation depends
+on what each harness can prove: an adapter may offer an app URL, an installed CLI command, both,
+or an explicit unavailable reason. *Open threads in* chooses between the available app and
+terminal capabilities; it does not invent one for a harness that has neither.
 
 ## Which harnesses work
 
@@ -42,13 +43,14 @@ somebody writing that adapter.
 
 | Harness | Status |
 | --- | --- |
-| **[Claude Code](https://claude.com/claude-code)** (Anthropic) | ✅ **Supported** — desktop app and CLI, including worktrees and live-process detection |
-| **[Codex](https://developers.openai.com/codex/cli)** (OpenAI) | ✅ **Supported** — desktop, VS Code and CLI sessions, opened through `codex://` |
-| **[OpenCode](https://opencode.ai)** | ✅ **Supported** — top-level sessions from its own store; no per-thread link to open |
+| **[Claude Code](https://claude.com/claude-code)** (Anthropic) | ✅ **Supported** — desktop and CLI records, worktrees and live-process evidence |
+| **[Codex](https://developers.openai.com/codex/cli)** (OpenAI) | ✅ **Supported** — desktop/VS Code index plus CLI rollouts and parent-worker graphs. Exact `codex resume <id>` syntax is known when the CLI is installed; terminal launch is not verified end to end and desktop UUID targeting is unavailable |
+| **[OpenCode](https://opencode.ai)** | ✅ **Supported** — sessions and parent-worker relationships from its own store; no per-thread link to open |
 | **[Antigravity CLI](https://antigravity.google)** (Google) | ✅ **Supported** — transcripts, opened through `antigravity://`. The successor to Gemini CLI, which Google stopped serving individual accounts on 18 June 2026 |
 | **[Cursor](https://cursor.com)** (Anysphere) | ✅ **Supported** — agent transcripts; the composer/sidebar threads are not read yet |
 | **[Hermes](https://github.com/opsmason/hermes)** | ✅ **Supported** — sessions per pilot profile. Lives in the terminal and chat apps, so there is no link to open |
 | **[Kilo Code](https://kilocode.ai)** | ✅ **Supported** — top-level sessions; a thread opens as its repo folder in VS Code |
+| **Rhythm** | ✅ **Supported** — read-only local session graph and persisted activity evidence; external per-session reopening is unavailable |
 | [Amp](https://ampcode.com) (Sourcegraph) | ⬜ Not yet |
 | [Aider](https://aider.chat) | ⬜ Not yet |
 | [Goose](https://block.github.io/goose/) (Block) | ⬜ Not yet |
@@ -57,6 +59,23 @@ somebody writing that adapter.
 
 Every harness that is installed shows up at once — the colony is the union of all of them, and
 a bot carries the name of the harness it belongs to.
+
+## Fork project model and usage
+
+This fork identifies a Git project by its canonical common directory and each checkout by its
+canonical worktree root. Linked worktrees therefore share one zone while independent clones stay
+separate. A session keeps its exact recorded cwd for navigation, even when that cwd is nested in a
+checkout. Missing and non-Git paths remain visible with explicit unknown evidence.
+
+Open a zone to inspect every known checkout, including linked worktrees without a recorded
+session. **Inspect checkout** refreshes its read-only Git status. The session list can be filtered
+by checkout, harness, activity, worker relationship, archive state, text, branch or path. A
+checkout can be grouped with another project in Bot Crossing and reset to automatic Git grouping;
+those preferences affect only Bot Crossing's own state.
+
+Workers form a flat session graph through `parentId`, so nested workers remain individually
+selectable and link back to their parent. Activity and unread evidence may be unknown; the UI says
+so instead of turning missing evidence into a running, quiet or read claim.
 
 ### Adding one
 
@@ -191,12 +210,12 @@ into the same repo. Picking somebody is also picking the zone they are standing 
 **The repo**, at the top, whether or not anybody is selected:
 
 - **New conversation** (`C`) starts a fresh thread in that folder. It is the same
-  `claude://code/new?folder=…` deep link Finder's "New Claude Code Session Here" quick
-  action uses, so the desktop app opens an empty session with the repo as its workspace —
-  nothing is resumed and nothing is written.
+  adapter capability used by that harness: an app URL or installed CLI command when one is
+  available. Nothing existing is resumed or changed.
 - **Finder** (Explorer on Windows) opens the folder, **Copy path** copies it.
-- Underneath, everything running in that repo, whoever wants something first. Clicking one
-  flies to its bot and selects it.
+- Underneath, the repo's recorded conversations and workers, with active or attention-seeking
+  sessions first and filters for narrowing the history. Clicking one flies to its bot and
+  selects it.
 
 **The thread**, when a bot is selected, in a card parked **beside that bot**
 rather than in the panel: its face, title, worktree, branch, model, last activity, and how
@@ -211,16 +230,15 @@ working bot rarely stands still long enough to be watched otherwise. Panning, or
 all still work while it follows; deselecting stops it, and the crosshair on the card turns it off
 for good if you would rather the view stayed put.
 
-- **Open** hands the thread back to whichever harness owns it and its app comes forward. On a
-  Linux box with no desktop app to answer the deep link, a terminal opens with the CLI resuming
-  the session instead.
-  *Open threads in: Terminal*, in settings, asks for that every time, on any of the three. On Windows a
-  thread that is already running in a terminal gets that window fronted instead of a second copy of
-  itself imported into the desktop app.
+- **Open** uses the capability reported by the thread's harness. Depending on the adapter that
+  can be an app URL, an installed CLI command, or unavailable with a reason shown in the card.
+  *Open threads in: Terminal* asks for the CLI capability when the adapter offers one. Codex
+  exposes exact CLI resume syntax, but terminal launch is not verified end to end and its desktop
+  UUID target is unavailable; Rhythm exposes no verified external per-session opener.
 - **Viewed** (`V`), on a thread that is asking for you, puts its hand down. The harness only
-  counts a thread as read once it has been focused in its own app, so one you answered in a
-  terminal waves for good. This records when you looked, and the thread starts asking again the
-  moment it does something newer.
+  supplies read/focus evidence when it has such a signal; otherwise read state stays unknown.
+  Viewed records when you looked in Bot Crossing, and the thread starts asking again the moment
+  it does something newer.
 - **Archive** retires the thread *here*: the bot walks back up the ramp and boards the
   ship. Nothing is written to the harness — see [Keeping it local](#keeping-it-local). A thread
   you archive in the harness's own app goes home on the next poll too, because the scan reads
@@ -236,32 +254,16 @@ a thread in it wakes up. *Hide dormant repos* in settings turns it off.
 Only one button in the panel is ever the accent colour: whichever action is the immediate
 one. `Esc` steps outward a notch at a time — the thread first, then its zone.
 
-Opening uses `claude://claude.ai/epitaxy/<local_…>`, which *navigates* the desktop app to a
-thread it already has. `claude://resume` is the fallback for threads that only exist as a CLI
-transcript: it *imports* the transcript, which creates a second untitled session and rewrites
-the `.jsonl`, so it is only ever used when there is nothing to navigate to.
-
-Archiving carries a deliberate one-writer discipline: the browser owns
-`data/colony.json` and PUTs it whole, `/api/archive` only touches Claude Code's records. If
-both wrote it, a save from a page holding older state would silently drop every archive made
-since that page loaded. Claude Code also rewrites its session records from memory and can
-stomp the flag, so the colony re-asserts it on every scan — an archive that gets stomped comes
-back within one poll.
-
-Nothing is ever written to your Claude Code data except that one `isArchived` field. The
-folder buttons only ever hand a path to `open`.
-
-The deep links above are the **Claude Code adapter's** business, not the colony's — another
-harness plugs its own in, and a harness with no deep link simply greys the button out. See
+Opening details are each adapter's business, not the colony's. An unavailable or unverified
+target stays disabled with its reason instead of being reported as opened. See
 [`server/harnesses/README.md`](server/harnesses/README.md).
 
-Plots are keyed by the folder's *name*, which is all the colony needs to draw one, so the path
-is read back off the threads standing there. Where a name is ambiguous — `~/workspaces/1/foo`
-and `~/workspaces/2/foo`, which is what you get keeping parallel copies instead of worktrees —
-it grows leftward until it is not, and you get `1/foo` and `2/foo` on separate ground. Only
-names that actually collide change, because the name is also the key your saved layout is
-stored under and disambiguating everything would move every plot on the map. A repo that has
-moved or gone since the last scan fails at the server rather than handing `open` a dead path.
+Plots are keyed by opaque stable project identities after resolution. Git projects use the
+canonical common Git directory, so linked worktrees share a plot; checkout entries use their
+canonical worktree roots, so their paths and status stay distinct. Independent clones remain
+separate even when their folder names match. Legacy name-keyed layouts are copied only when the
+mapping is unambiguous, and the original keys remain available for recovery. A path that moved
+or disappeared stays visible as missing and is refused before a filesystem action runs.
 
 Name plates are hit-tested in screen space rather than raycast: they are billboarded in the
 vertex shader, so a raycast would test the quad where it was authored rather than where it
@@ -823,12 +825,13 @@ What it touches on disk, in full:
 
 | | |
 | --- | --- |
-| Reads | Your harness's own session records and transcripts |
-| Writes | `data/colony.json`, and **one** `isArchived` field per archived thread |
+| Reads | Your harness's own session records and transcripts, plus read-only Git metadata/status for project and checkout discovery |
+| Writes | Bot Crossing's own `data/colony.json` and `data/identities.json`; no harness files |
 | Sends | Nothing. No network calls, no telemetry, no account |
 
-`data/colony.json` holds the names and paths of the repos you work in, so it is gitignored —
-worth knowing before you copy one into an issue.
+Both files may contain names or paths from the repos you work in, so `data/` is gitignored —
+worth knowing before you copy either file into an issue. Git discovery runs only read commands
+such as worktree inventory and status with optional locks disabled.
 
 ## Layout
 
@@ -838,8 +841,9 @@ server/
     index.mjs    the registry: add your harness to the list here
     claude-code.mjs
   lib/         filesystem helpers the adapters share
+  projects.mjs stable Git project/checkout identity and bounded read-only status cache
   scan.mjs     harness-agnostic: asks every detected harness, merges, sorts
-  api.mjs      /api/threads, /api/harnesses, /api/state, /api/open, /api/archive,
+  api.mjs      /api/threads, /api/harnesses, /api/checkout, /api/state, /api/open,
                /api/new-session, /api/reveal
   serve.mjs    static server for the built app
 src/
@@ -860,9 +864,11 @@ Everything that knows what a *particular* harness's files look like lives in
 `server/harnesses/`. Everything else — the scanner, the API, the whole of `src/` — is written
 against the thread shape and never against a harness.
 
-Colony state lives in `data/colony.json` — where each zone sits and what you archived.
-Deleting it only loses the archive list and the map's arrangement; the threads themselves are
-untouched, and the colony lays itself out again from scratch.
+Colony preferences live in `data/colony.json` — where each zone sits, what you archived and
+project grouping overrides. `data/identities.json` caches previously observed project and
+checkout evidence so missing paths keep a stable identity. Deleting either never touches a
+harness; deleting colony state loses preferences, while deleting the identity cache makes
+missing paths fall back to the evidence available on the next scan.
 
 ## Building your own
 

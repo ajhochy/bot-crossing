@@ -1,19 +1,19 @@
 # Project state
 
 ## Current focus
-Priority 2 adds the Codex durable parent/worker graph and honest incremental lifecycle evidence to the project/checkout foundation.
+Three dependent draft slices implement the multi-harness colony. No merge or upstream submission.
 
 ## Active branch / PR
-`codex/codex-session-graph` depends on `codex/project-checkout-identity` (draft fork PR #1).
+Final stack branch: `codex/rhythm-session-graph`; depends on `codex/codex-session-graph`, then `codex/project-checkout-identity` against fork main.
 
 ## In progress
-Rhythm/OpenCode integration remains a separate dependent slice.
+Implementation and local verification finished. Draft publication is tracked in the current plan.
 
 ## Risks / known issues
-Exact Codex CLI resume syntax was checked against installed help; terminal resume was not exercised end to end. The app's internal navigation API selected a worker and its parent, but OS UUID deep-link targeting remains unverified and disabled. Synthetic fixtures cover transitions that were not forced in production.
+Codex CLI invocation shape is verified, terminal resume is not qualified end to end. Codex desktop UUID opening and Rhythm external conversation opening are unavailable. Persisted Rhythm activity is not a live heartbeat. Ambiguous legacy layouts remain preserved for review. See the run report for movement, status-budget, and historical-data limits.
 
 ## Test status
-169 tests and production build pass on the isolated staged tree. Live current task appears once with three workers; 397 workers have nickname metadata and no worker remains Untitled thread. Oversized lifecycle and partial-write cases have regression coverage. No CI workflow configured.
+172 synthetic/API tests and production build pass. Real HTTP smoke passes with 15,475 unique sessions and no warnings; rendered fixture checks and live project filtering pass. No GitHub Actions configuration exists. See `runs/2026-09-18-multi-harness.md` and the acceptance contract for evidence boundaries.
 
 ## Next step
-Review after PR #1; then review the Rhythm draft. No merges or harness writes.
+Review the draft stack in dependency order. No deployment or harness modifications are required to use the local viewer.

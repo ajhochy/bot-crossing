@@ -391,20 +391,22 @@ async function fakeOpencode() {
   return { home, h: opencode }
 }
 
-test('opencode lists only top-level sessions with mapped fields', async () => {
+test('opencode lists parent and child sessions once with mapped fields', async () => {
   const { home, h } = await fakeOpencode()
   try {
     assert.equal(await h.detect(), true)
     const threads = await h.scanThreads()
-    assert.equal(threads.length, 1)
-    const [t] = threads
+    assert.equal(threads.length, 2)
+    const t = threads.find((thread) => thread.id === `opencode:${OPENCODE_SESSION}`)
+    const child = threads.find((thread) => thread.id === 'opencode:ses_child11111111111111111111111')
+    assert.equal(child.parentId, t.id)
     assert.equal(t.id, `opencode:${OPENCODE_SESSION}`)
     assert.equal(t.project, 'demo')
     assert.equal(t.projectPath, '/tmp/demo')
     assert.equal(t.cwd, '/tmp/demo')
     assert.equal(t.worktree, '')
     assert.equal(t.title, 'Fix the thing')
-    assert.equal(t.preview, 'ship the thing')
+    assert.equal(t.preview, '', 'historical prompt text is omitted from list scans')
     assert.equal(t.model, 'muse-spark')
     assert.equal(t.canOpen, false)
     assert.deepEqual(t.ref, { sessionId: OPENCODE_SESSION, cwd: '/tmp/demo' })
@@ -452,7 +454,8 @@ test('opencode running is bounded by the activity window and errors come from th
   try {
     const byId = new Map((await opencode.scanThreads()).map((t) => [t.id, t]))
     assert.equal(byId.get('opencode:ses_running1111111111111111111111').running, true)
-    assert.equal(byId.get('opencode:ses_stale11111111111111111111111').running, false, 'an open turn from hours ago is not still running')
+    assert.equal(byId.get('opencode:ses_stale11111111111111111111111').running, null, 'a stale open turn is unknown, not still running')
+    assert.equal(byId.get('opencode:ses_stale11111111111111111111111').activity, 'unknown')
     assert.equal(byId.get('opencode:ses_error111111111111111111111111').hasError, true)
     assert.equal(byId.get('opencode:ses_running1111111111111111111111').hasError, false)
   } finally {

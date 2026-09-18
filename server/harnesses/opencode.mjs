@@ -3,10 +3,9 @@
  *
  * Primary store is `opencode.db` (WAL mode, so concurrent readers are safe while
  * the app runs): `~/.local/share/opencode/opencode.db`, overridable with
- * `$OPENCODE_DB`. Only top-level sessions count as threads — child rows with
- * `parent_id` set are the task tool's subagents, and OpenCode's own session list
- * filters them the same way. Including them would stand hundreds of astronauts
- * on the map that nobody ever talked to.
+ * `$OPENCODE_DB`. Parent ids are retained so standalone OpenCode delegations remain visible;
+ * a dedicated wrapper such as Rhythm may claim a row through the scanner's evidence-based
+ * deduplication without hiding unrelated OpenCode sessions.
  *
  * Read-only, without exception, and no subprocess anywhere. There is no
  * per-session deep link upstream, so opening a thread is honestly refused and
@@ -14,6 +13,7 @@
  */
 import path from 'node:path'
 import os from 'node:os'
+import fsp from 'node:fs/promises'
 import { exists, findExecutable, num } from '../lib/fsutil.mjs'
 
 const HOME = os.homedir()
@@ -85,49 +85,19 @@ function projectOf(directory) {
   return { projectPath: dir, project: base || 'unknown', cwd: dir }
 }
 
-/** First user text per session never changes, so it is kept forever. */
-const previewCache = new Map()
+let scanCache = null
 
-async function firstUserText(db, sessionId) {
-  if (previewCache.has(sessionId)) return previewCache.get(sessionId)
-  let out = ''
-  try {
-    const msgs = db
-      .prepare(`SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created ASC LIMIT 8`)
-      .all(sessionId)
-    for (const m of msgs) {
-      let role = ''
-      try {
-        role = JSON.parse(m.data)?.role || ''
-      } catch {
-        continue
-      }
-      if (role !== 'user') continue
-      const parts = db
-        .prepare(`SELECT data FROM part WHERE message_id = ? ORDER BY time_created ASC LIMIT 8`)
-        .all(m.id)
-      for (const p of parts) {
-        try {
-          const d = JSON.parse(p.data)
-          if (d?.type === 'text' && typeof d.text === 'string' && clean(d.text)) {
-            out = clean(d.text)
-            break
-          }
-        } catch {
-          /* a part mid-write — skip it */
-        }
-      }
-      if (out) break
+async function dbSignature(file) {
+  const one = async (candidate) => {
+    try {
+      const stat = await fsp.stat(candidate)
+      return `${stat.size}:${stat.mtimeMs}`
+    } catch {
+      return '-'
     }
-  } catch {
-    out = ''
   }
-  previewCache.set(sessionId, out)
-  return out
+  return `${await one(file)}|${await one(`${file}-wal`)}`
 }
-
-/** Costly facts kept against `time_updated`, so an unchanged session is read once. */
-const factsCache = new Map()
 
 /**
  * Whether an error-status tool part means the run failed.
@@ -148,59 +118,128 @@ function isRealError(raw) {
   return !/user rejected permission|permission.{0,20}denied|denied.{0,20}permission|execution aborted|aborted|cancelled/i.test(text)
 }
 
-async function sessionFacts(db, sessionId, timeUpdated) {
-  const hit = factsCache.get(sessionId)
-  if (hit && hit.timeUpdated === timeUpdated) return hit.facts
-  const facts = { running: false, hasError: false, sizeBytes: 0 }
-  try {
-    const msgBytes = db.prepare(`SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM message WHERE session_id = ?`).get(sessionId)
-    const partBytes = db.prepare(`SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM part WHERE session_id = ?`).get(sessionId)
-    facts.sizeBytes = num(msgBytes?.n) + num(partBytes?.n)
-  } catch {
-    facts.sizeBytes = 0
+const blankFacts = () => ({
+  preview: '',
+  activity: 'unknown',
+  running: null,
+  activityEvidence: 'OpenCode turn state unavailable',
+  hasError: false,
+  // A full SUM(LENGTH(data)) over a multi-gigabyte store blocks the server for seconds. Older
+  // sessions remain zero; a bounded recent set is measured below.
+  sizeBytes: 0,
+})
+
+async function rowsInBatches(db, ids, select) {
+  const rows = []
+  const batchSize = 400
+  for (let at = 0; at < ids.length; at += batchSize) {
+    const batch = ids.slice(at, at + batchSize)
+    const placeholders = batch.map(() => '?').join(', ')
+    rows.push(...db.prepare(select(placeholders)).all(...batch))
+    // DatabaseSync is synchronous. Yield between bounded indexed queries so an HTTP response is
+    // not starved throughout a cold scan on a large store.
+    await new Promise((resolve) => setImmediate(resolve))
   }
+  return rows
+}
+
+/** One indexed metadata pass replaces four transcript queries per session. */
+async function bulkSessionFacts(db, sessions) {
+  const facts = new Map(sessions.map((row) => [row.id, blankFacts()]))
+  const sessionById = new Map(sessions.map((row) => [row.id, row]))
+  const last = new Map()
   try {
-    const last = db
-      .prepare(`SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC, rowid DESC LIMIT 1`)
-      .get(sessionId)
-    if (last?.data) {
-      const d = JSON.parse(last.data)
-      const completed = d?.time?.completed
-      const finished = typeof d?.finish === 'string' && d.finish
-      const msgError = typeof d?.error?.name === 'string' ? d.error.name : ''
-      const aborted = /abort/i.test(msgError)
-      // A trailing user message means the model speaks next — whatever the
-      // process is doing, it is not waiting on anyone. A turn that ended in
-      // error or abort is over too, even when it carries no finish stamp.
-      const open = d?.role === 'user' || (d?.role === 'assistant' && !completed && !finished && !msgError)
-      facts.running = open && Date.now() - num(timeUpdated) < ACTIVE_WINDOW_MS
-      if (d?.role === 'assistant' && (completed || finished || msgError)) {
-        if (aborted) {
-          // The user stopped the turn. Same as pressing escape elsewhere:
-          // an abandoned turn is not a failed one.
-          facts.hasError = false
-        } else if (msgError) {
-          // The turn itself failed (provider/auth error) — that is what the
-          // red eyes are for, even when no single tool part takes the blame.
-          facts.hasError = true
-        } else {
-          // Only the last turn counts: a historic tool error must not redden
-          // an astronaut forever. And a turn the *user* stopped is not a
-          // failure — a rejected permission or an aborted call is this
-          // harness's version of pressing escape.
-          const candidates = db
-            .prepare(
-              `SELECT data FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 3) AND data LIKE '%"status":"error"%' LIMIT 5`
-            )
-            .all(sessionId)
-          facts.hasError = candidates.some((row) => isRealError(row?.data))
+    const lastRows = db.prepare(`
+      SELECT m.session_id, m.id, m.data
+      FROM message m
+      JOIN (SELECT session_id, MAX(time_created) AS edge FROM message GROUP BY session_id) x
+        ON x.session_id = m.session_id AND x.edge = m.time_created
+      ORDER BY m.time_created, m.rowid
+    `).all()
+    for (const row of lastRows) last.set(row.session_id, row)
+  } catch {
+    return facts
+  }
+
+  // The session title is already the engine's compact first-turn label. Reading the original
+  // prompt for every historical row transfers tens of megabytes on a cold scan; leave preview
+  // empty here and reserve transcript text for an eventual on-demand detail endpoint.
+
+  // Building progress only needs a useful current scale. Exact transcript bytes for every old
+  // row requires scanning gigabytes; measure the 200 most recently updated sessions in two
+  // indexed grouped queries and leave older rows at zero until they become recent.
+  const recentIds = [...sessions]
+    .sort((a, b) => num(b.time_updated) - num(a.time_updated))
+    .slice(0, 200)
+    .map((row) => row.id)
+  if (recentIds.length) {
+    try {
+      const placeholders = recentIds.map(() => '?').join(', ')
+      for (const table of ['message', 'part']) {
+        const sizes = db.prepare(`
+          SELECT session_id, COALESCE(SUM(LENGTH(data)), 0) AS bytes
+          FROM ${table}
+          WHERE session_id IN (${placeholders})
+          GROUP BY session_id
+        `).all(...recentIds)
+        for (const row of sizes) {
+          const target = facts.get(row.session_id)
+          if (target) target.sizeBytes += num(row.bytes)
         }
       }
+    } catch {
+      /* size is decoration; never lose a session over it */
+    }
+  }
+
+  const terminalMessageIds = []
+  for (const [sessionId, row] of last) {
+    const target = facts.get(sessionId)
+    const session = sessionById.get(sessionId)
+    if (!target || !session) continue
+    try {
+      const data = JSON.parse(row.data)
+      const completed = data?.time?.completed
+      const finished = typeof data?.finish === 'string' && data.finish
+      const msgError = typeof data?.error?.name === 'string' ? data.error.name : ''
+      const aborted = /abort/i.test(msgError)
+      const open = data?.role === 'user' || (data?.role === 'assistant' && !completed && !finished && !msgError)
+      if (open && Date.now() - num(session.time_updated) < ACTIVE_WINDOW_MS) {
+        target.activity = 'running'
+        target.running = true
+        target.activityEvidence = 'fresh OpenCode turn'
+      } else if (!open) {
+        target.activity = 'quiet'
+        target.running = false
+        target.activityEvidence = 'completed OpenCode turn'
+      } else {
+        target.activityEvidence = 'stale OpenCode turn'
+      }
+      if (data?.role === 'assistant' && (completed || finished || msgError)) {
+        if (!aborted && msgError) target.hasError = true
+        else if (!aborted && !msgError) terminalMessageIds.push(row.id)
+      }
+    } catch {
+      /* malformed message */
+    }
+  }
+
+  try {
+    const errors = await rowsInBatches(db, terminalMessageIds, (slots) => `
+      SELECT session_id,
+             SUBSTR(json_extract(data, '$.state.error'), 1, 2048) AS state_error,
+             SUBSTR(json_extract(data, '$.state.output'), 1, 2048) AS state_output
+      FROM part
+      WHERE message_id IN (${slots}) AND json_extract(data, '$.state.status') = 'error'
+    `)
+    for (const row of errors) {
+      const target = facts.get(row.session_id)
+      const bounded = { state: { error: row.state_error, output: row.state_output } }
+      if (target && isRealError(bounded)) target.hasError = true
     }
   } catch {
-    /* mid-write, or gone */
+    /* error adornment is optional */
   }
-  factsCache.set(sessionId, { timeUpdated, facts })
   return facts
 }
 
@@ -209,6 +248,10 @@ async function scanThreads() {
   if (!file) return []
   const sqlite = await sqliteApi()
   if (!sqlite?.DatabaseSync) return []
+  const signature = await dbSignature(file)
+  if (scanCache?.file === file && scanCache.signature === signature) {
+    return scanCache.threads.map((thread) => ({ ...thread, ref: { ...thread.ref } }))
+  }
 
   let db
   try {
@@ -231,17 +274,18 @@ async function scanThreads() {
     }
     const rows = db
       .prepare(
-        `SELECT id, directory, title, agent, model, time_created, time_updated, time_archived FROM session ${cols.has('parent_id') ? 'WHERE parent_id IS NULL' : ''} ORDER BY time_updated DESC`
+        `SELECT id, directory, title, agent, model, time_created, time_updated, time_archived, ${cols.has('parent_id') ? 'parent_id' : 'NULL AS parent_id'} FROM session ORDER BY time_updated DESC`
       )
       .all()
+    const factsBySession = await bulkSessionFacts(db, rows)
     const out = []
     for (const r of rows) {
       if (typeof r.id !== 'string' || !r.id) continue
       const { projectPath, project, cwd } = projectOf(r.directory)
       const { model, effort } = parseModel(r.model)
-      const prompt = await firstUserText(db, r.id)
+      const facts = factsBySession.get(r.id) || blankFacts()
+      const prompt = ''
       const title = clean(r.title) || prompt || 'Untitled thread'
-      const facts = await sessionFacts(db, r.id, num(r.time_updated))
       out.push({
         id: ID(r.id),
         title: title.slice(0, 120),
@@ -260,7 +304,9 @@ async function scanThreads() {
         // No focus history, so "have you looked at this" is unknowable — not false.
         lastFocusedAt: 0,
         unread: false,
+        activity: facts.activity,
         running: facts.running,
+        activityEvidence: facts.activityEvidence,
         hasError: facts.hasError,
         starred: false,
         routine: '',
@@ -271,11 +317,15 @@ async function scanThreads() {
         // buildings taller than Claude ones for the same work.
         sizeBytes: facts.sizeBytes,
         source: typeof r.agent === 'string' ? r.agent : '',
+        agentName: typeof r.agent === 'string' ? r.agent : '',
+        profile: typeof r.agent === 'string' ? r.agent : '',
+        parentId: typeof r.parent_id === 'string' && r.parent_id ? ID(r.parent_id) : null,
         canOpen: false,
         ref: { sessionId: r.id, cwd }
       })
     }
-    return out
+    scanCache = { file, signature, threads: out }
+    return out.map((thread) => ({ ...thread, ref: { ...thread.ref } }))
   } catch {
     return []
   } finally {
