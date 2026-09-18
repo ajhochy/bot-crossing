@@ -2,7 +2,7 @@
 date: 2026-09-18
 repo: bot-crossing
 branch: codex/rhythm-session-graph
-pr: draft stack
+pr: 3
 issues: []
 status: validated-locally
 tags: [run, bot-crossing]
@@ -17,6 +17,7 @@ Shared Git identity resolver and Bot Crossing state migration; project/checkout 
 
 ## Checks run
 
+- Code head `51b982f` on `codex/rhythm-session-graph`: `npm test` and `npm run build` both exited 0.
 - `npm test`: 172 tests passed across synthetic harness databases/rollouts, temporary Git repositories, real loopback state API, conflict merges, and corrupted-state preservation.
 - `npm run build`: passed. Vite retains its existing large bundle advisory; no lint/typecheck configuration or GitHub Actions workflow exists.
 - Changed modules: `node --check`; `git diff --check`.
@@ -35,3 +36,7 @@ The baseline no-CLI tests accidentally discovered the installed Codex CLI; an ex
 Lifecycle completion/interruption/partial-write transitions were tested with synthetic records. Live discovery confirmed current Codex activity and hierarchy, but no additional production tasks were started to force every transition. The installed Codex CLI help verified exact resume syntax and cwd/UUID arguments; a terminal was not resumed end to end. The app's own navigation API selected a worker and restored its parent, but the OS deep link could not be verified, so Bot Crossing disables that desktop action. Rhythm has no verified external per-session opener, and its button explicitly says unavailable. Its offline evidence is persisted SQLite status, not a process heartbeat. The observed Rhythm services were a source runtime; installed packaged behavior was not qualified or restarted.
 
 Git status is bounded and explicitly unknown until inspected for historical checkouts. Missing paths retain prior cached identity; moving an entire clone/common Git directory cannot be inferred safely and may require explicit grouping. Ambiguous legacy layout names are retained for review instead of guessed; old keys are never deleted. Historical OpenCode prompt previews and exact transcript byte totals beyond the newest 200 sessions are omitted from list scans. No cleanup recommendation or deletion workflow is introduced.
+
+## Draft stack and handoff
+
+[PR #1](https://github.com/ajhochy/bot-crossing/pull/1) → [PR #2](https://github.com/ajhochy/bot-crossing/pull/2) → [PR #3](https://github.com/ajhochy/bot-crossing/pull/3), all drafts in the fork. No merges or upstream PRs. Foundation final head `91a8b19` also passed 161 tests and build; Codex head `54f9391` passed 169 tests and build. Dev Dashboard revision 4208 records the aggregate run. The final local viewer runs at `http://127.0.0.1:5287`; synthetic preview server stopped.

@@ -4,10 +4,10 @@
 Three dependent draft slices implement the multi-harness colony. No merge or upstream submission.
 
 ## Active branch / PR
-Final stack branch: `codex/rhythm-session-graph`; depends on `codex/codex-session-graph`, then `codex/project-checkout-identity` against fork main.
+Final stack branch: `codex/rhythm-session-graph`. Review [PR #1](https://github.com/ajhochy/bot-crossing/pull/1) against main, then [PR #2](https://github.com/ajhochy/bot-crossing/pull/2) against #1, then [PR #3](https://github.com/ajhochy/bot-crossing/pull/3) against #2. All are drafts in the fork.
 
 ## In progress
-Implementation and local verification finished. Draft publication is tracked in the current plan.
+None for this implementation request. The draft stack is published, the live loopback viewer remains running, and Dev Dashboard revision 4208 records the run.
 
 ## Risks / known issues
 Codex CLI invocation shape is verified, terminal resume is not qualified end to end. Codex desktop UUID opening and Rhythm external conversation opening are unavailable. Persisted Rhythm activity is not a live heartbeat. Ambiguous legacy layouts remain preserved for review. See the run report for movement, status-budget, and historical-data limits.

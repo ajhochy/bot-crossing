@@ -53,4 +53,4 @@ Baseline d05ac2f verified clean. The existing scanner disambiguates display name
 - [x] Implement and verify Priority 3.
 - [x] Full production build, realistic scan measurements and browser verification.
 - [x] Review commits and prepare draft fork PR stack in dependency order; record limitations.
-- [ ] Confirm all draft PR links and record the final dashboard run.
+- [x] Confirm draft PRs #1, #2, #3 and record the final Dev Dashboard run (revision 4208).
