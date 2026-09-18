@@ -91,11 +91,20 @@ test('P1-4: corrupt identity cache fails closed, reaches the API, and preserves 
     const corrupt = '{broken identity cache\n'
     await fs.writeFile(cache, corrupt)
 
-    const response = await call('/api/threads')
-    assert.equal(response.status, 500)
-    const body = await response.json()
-    assert.match(body.error, /identity cache.*invalid JSON.*left unchanged/i)
-    assert.equal(await fs.readFile(cache, 'utf8'), corrupt)
+    const fixture = path.join(dir, 'sessions.json')
+    await fs.writeFile(fixture, '[]')
+    const before = process.env.BOT_CROSSING_FIXTURE
+    process.env.BOT_CROSSING_FIXTURE = fixture
+    try {
+      const response = await call('/api/threads')
+      assert.equal(response.status, 500)
+      const body = await response.json()
+      assert.match(body.error, /identity cache.*invalid JSON.*left unchanged/i)
+      assert.equal(await fs.readFile(cache, 'utf8'), corrupt)
+    } finally {
+      if (before === undefined) delete process.env.BOT_CROSSING_FIXTURE
+      else process.env.BOT_CROSSING_FIXTURE = before
+    }
   })
 })
 
