@@ -1,0 +1,86 @@
+{
+  "issue": null,
+  "generated": "2026-09-18",
+  "stack": "javascript",
+  "criteria": [
+    {
+      "criterion_id": "opening-c1",
+      "text": "An installed Codex desktop opens the exact selected task or worker without requiring the CLI.",
+      "mode": "integration",
+      "test_file": "test/native-opening.test.mjs",
+      "test_id": "opening-c1: an installed Codex desktop opens the exact worker UUID without a CLI",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "opening-c2",
+      "text": "Failed OS launch is shown as an error rather than an opened success.",
+      "mode": "integration",
+      "test_file": "test/native-opening.test.mjs",
+      "test_id": "opening-c2: failed native dispatch is an error, never an Opened success",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "opening-c3",
+      "text": "Missing desktop support remains unavailable with an actionable reason.",
+      "mode": "unit",
+      "test_file": "test/native-opening.test.mjs",
+      "test_id": "opening-c3: a missing desktop app keeps the unavailable reason actionable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "opening-c4",
+      "text": "Verify selected task navigation through the installed Codex application.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Real Bot Crossing Open button and opt-in HTTP probe each produced a fresh exact worker/parent route receipt in installed Codex desktop logs."
+    },
+    {
+      "criterion_id": "opening-c5",
+      "text": "Open the selected Rhythm conversation in Rhythm.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Real Bot Open reached requested Rhythm URI. After one renderer update reload and supported sign-in, native UI showed matching session ID/title; subsequent same-profile switching also selected the exact target. Electron main/API/engine PIDs unchanged."
+    },
+    {
+      "criterion_id": "opening-c6",
+      "text": "Scanned Codex tasks expose installed desktop capability without the CLI.",
+      "mode": "integration",
+      "test_file": "test/native-opening.test.mjs",
+      "test_id": "opening-c6: scanned tasks enable desktop opening even without the CLI",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "rhythm-opening-c1",
+      "text": "Exact Rhythm local session ID reaches the running Electron profile.",
+      "mode": "integration",
+      "test_file": "test/rhythm-opening.test.mjs",
+      "test_id": "rhythm-opening-c1: exact local session ID reaches the running Electron profile",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "rhythm-opening-c2",
+      "text": "Unpatched or stopped Rhythm remains unavailable.",
+      "mode": "unit",
+      "test_file": "test/rhythm-opening.test.mjs",
+      "test_id": "rhythm-opening-c2: unpatched or stopped Rhythm remains unavailable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "rhythm-opening-c3",
+      "text": "Invalid or URL-shaped IDs never reach the launcher.",
+      "mode": "unit",
+      "test_file": "test/rhythm-opening.test.mjs",
+      "test_id": "rhythm-opening-c3: invalid or URL-shaped IDs never reach the launcher",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "rhythm-opening-c4",
+      "text": "Cached sessions refresh opening availability without database changes.",
+      "mode": "integration",
+      "test_file": "test/rhythm-opening.test.mjs",
+      "test_id": "rhythm-opening-c4: cached sessions refresh opening availability without database changes",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

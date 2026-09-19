@@ -1,0 +1,42 @@
+{
+  "patterns": [],
+  "process_patterns": [],
+  "workflow_patterns": [
+    {
+      "id": "w3-todowrite-checklist-not-expanded",
+      "category": "W3",
+      "description": "TodoWrite checklist not expanded failures: 2 occurrence(s) across issues []",
+      "occurrences": 2,
+      "affected_issues": [],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "A skill said 'expand Completion Checklist into TodoWrite items at start' and the agent did not. The skills themselves should make this harder to skip, but the orchestrator can also verify.",
+      "suggested_prompt_addition": "When dispatching any skill whose SKILL.md contains the phrase 'expand the Completion Checklist into TodoWrite items at start', include in the dispatch prompt: 'Your FIRST tool call must be TodoWrite, expanding the Completion Checklist verbatim. No other tool calls are permitted before this.'",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/bot-crossing/.agent-stack/postmortems/2026-09-18-multi-harness.json",
+        "/Users/ajhochhalter/Documents/bot-crossing/.agent-stack/postmortems/2026-09-18-overview-opening.json"
+      ]
+    },
+    {
+      "id": "w1-required-skill-skipped",
+      "category": "W1",
+      "description": "Required skill skipped failures: 1 occurrence(s) across issues []",
+      "occurrences": 1,
+      "affected_issues": [],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "A required skill in the canonical chain was skipped. The orchestrator must enforce the chain \u2014 every required step is gated.",
+      "suggested_prompt_addition": "Before dispatching the next step, verify that the immediately-previous required step in the chain announced itself, expanded its TodoWrite checklist, and emitted its expected output artifact. If the previous step is missing, halt and surface the gap rather than continuing.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/bot-crossing/.agent-stack/postmortems/2026-09-18-overview-opening.json"
+      ]
+    }
+  ],
+  "last_updated": "2026-09-18",
+  "total_runs_analyzed": 2,
+  "min_occurrences_threshold": 2,
+  "process_min_occurrences_threshold": 1,
+  "workflow_min_occurrences_threshold": 1
+}

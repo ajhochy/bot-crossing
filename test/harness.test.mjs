@@ -102,18 +102,19 @@ test('codex offers `codex resume <id>` in the thread cwd alongside its deep link
   })
 })
 
-test('codex with no CLI installed refuses the unverified desktop deep link', posixOnly, async () => {
+test('codex with neither CLI nor desktop installed reports the missing desktop app', posixOnly, async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'bot-crossing-nocli-'))
   try {
-    const opened = await withEnv({ PATH: dir, BOT_CROSSING_CODEX_CLI: '' }, () =>
+    const opened = await withEnv({ PATH: dir, BOT_CROSSING_CODEX_CLI: '', BOT_CROSSING_CODEX_APP: '' }, () =>
       codex.openThread({ sessionId: SESSION_ID })
     )
     assert.deepEqual(opened, {
       ok: true,
       url: `codex://threads/${SESSION_ID}`,
       command: undefined,
+      appBundleId: undefined,
       appUnavailableReason:
-        'Opening an exact Codex task UUID in the desktop app is not verified; use Resume in terminal',
+        'Codex desktop is not installed or not available on this platform; use Resume in terminal',
     })
   } finally {
     await fsp.rm(dir, { recursive: true, force: true })

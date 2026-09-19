@@ -143,7 +143,6 @@ async function writeState(next) {
 }
 
 /**
-/**
  * Hand a `harness://…` deep link, or a folder, to whatever opens things on this OS. The
  * opener gets an argument list, never a shell string.
  *
@@ -158,10 +157,8 @@ async function writeState(next) {
  * arrived, and `cmd /c start` parses its own argument line, where the `%3A%5C` escapes in that
  * same link are exactly what it expands.
  *
- * The spawn is guarded because the opener may simply not be installed — a headless Linux box
- * has no `xdg-open` — and an unhandled `error` event on a child process takes the whole server
- * down. Failing quietly is right here: there is nothing the page could do with the error, and
- * the scan path must never depend on whether presentation worked.
+ * Wait for the OS dispatcher to accept the request. A missing handler or failed process must
+ * reach the user as an error. Successful dispatch alone does not prove the target rendered.
  */
 const OPENERS = {
   darwin: ['open'],
@@ -169,13 +166,23 @@ const OPENERS = {
   linux: ['xdg-open'],
 }
 
-function launch(target) {
+function launch(target, bundleId) {
   const opener = OPENERS[process.platform]
-  if (!opener) return
+  if (!opener) return Promise.resolve({ ok: false, error: 'Opening an app is not supported on this platform' })
   const [cmd, ...args] = opener
-  const child = spawn(cmd, [...args, target], { stdio: 'ignore', detached: true })
-  child.on('error', () => {})
-  child.unref()
+  const appArgs = process.platform === 'darwin' && bundleId ? ['-b', bundleId] : []
+  return dispatchProcess([cmd, ...args, ...appArgs, target])
+}
+
+function dispatchProcess(argv, options = {}) {
+  return new Promise(resolve => {
+    const child = spawn(argv[0], argv.slice(1), { ...options, stdio: 'ignore' })
+    let settled = false
+    const done = result => { if (!settled) { settled = true; clearTimeout(timer); resolve(result) } }
+    const timer = setTimeout(() => { child.kill(); done({ ok: false, error: 'The app did not accept the open request in time' }) }, 10000)
+    child.once('error', () => done({ ok: false, error: 'Could not open the app; check that it is installed' }))
+    child.once('close', code => done(code === 0 ? { ok: true } : { ok: false, error: 'Could not open the app; check that it is installed and can handle this link' }))
+  })
 }
 
 /**
@@ -239,6 +246,11 @@ export async function present(result, via = 'app') {
     return runInTerminal(result.command)
   }
   if (result.appUnavailableReason) return { ok: false, error: result.appUnavailableReason }
+  if (result.appCommand) {
+    const { argv, cwd, env } = result.appCommand
+    const opened = await dispatchProcess(argv, { cwd, env: { ...process.env, ...env } })
+    return opened.ok ? { ok: true, via: 'app', note: result.note } : opened
+  }
 
   // A `pid` names a live process whose thread already has a window on this machine — a session
   // running in a terminal right now. Fronting that window is tried before the URL, because the
@@ -250,13 +262,15 @@ export async function present(result, via = 'app') {
 
   if (process.platform !== 'linux') {
     if (!result.url) return { ok: false, error: 'That harness has no deep link to open on this platform' }
-    launch(result.url)
+    const opened = await launch(result.url, result.appBundleId)
+    if (!opened.ok) return opened
     // A note is the adapter saying it opened *something* — the repo rather than the thread.
     return { ok: true, url: result.url, note: result.note }
   }
 
   if (result.url && (await schemeHasHandler(result.url))) {
-    launch(result.url)
+    const opened = await launch(result.url)
+    if (!opened.ok) return opened
     return { ok: true, url: result.url }
   }
   if (result.command) return runInTerminal(result.command)
@@ -476,8 +490,8 @@ export async function apiMiddleware(req, res, next) {
       if (!dir) return send(res, 400, { ok: false, error: 'That folder is not on this machine any more' })
 
       if (url.pathname === '/api/reveal') {
-        launch(dir)
-        return send(res, 200, { ok: true })
+        const shown = await launch(dir)
+        return send(res, shown.ok ? 200 : 400, shown)
       }
       const harness = body.harness || (await defaultHarness())
       const shown = await present(await harnessNewSession(harness, dir), viaOf(body))

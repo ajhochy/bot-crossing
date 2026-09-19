@@ -25,7 +25,7 @@ import {
 } from './game/api.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
-import { groupProjects, migrateProjectState, migrateSessionState, filterSessions } from './game/projects.js'
+import { groupProjects, migrateProjectState, migrateSessionState, filterSessions, projectCategory, projectOverview } from './game/projects.js'
 import { mergeState } from './game/merge-state.js'
 
 /**
@@ -68,7 +68,7 @@ let threads = []
 let sourceThreads = []
 let projectInventory = []
 let groupedInventory = []
-let filters = { query: '', harness: '', status: '', checkout: '' }
+let filters = { query: '', harness: '', status: '', checkout: '', includeHistorical: false }
 let selectedCheckout = ''
 /** Last legend built for the bottom bar, kept so the open zone's chip can light up between polls. */
 let legendProjects = []
@@ -170,6 +170,12 @@ const actions = {
   select: (id) => select(id, {}),
   filterSessions: (next) => {
     filters = { ...filters, ...next }
+    if (!filters.includeHistorical && projectCategory(groupedInventory.find(p => p.id === selectedProject) || {}) === 'historical') {
+      selectedProject = null
+      selectedCheckout = ''
+      filters.checkout = ''
+      select(null, {})
+    }
     applyThreads(sourceThreads)
   },
   selectCheckout: (id) => {
@@ -998,7 +1004,9 @@ function applyThreads(list) {
   }
   if (firstSeen) queueSave()
 
-  const visible = filterSessions(list, { ...filters, checkout: '' })
+  const overview = projectOverview(list, groupedInventory, filters, hiddenSet)
+  const visible = overview.threads
+  hud.setHistoricalCount(overview.historicalCount)
   const projectCounts = new Map()
   for (const t of visible) {
     if (!projectCounts.has(t.project)) projectCounts.set(t.project, { count: 0, workers: 0 })
@@ -1010,8 +1018,8 @@ function applyThreads(list) {
   hud.setStats(stats)
   chimeForNewWaiting(list, archivedSet, hiddenSet)
 
-  legendProjects = groupedInventory.filter(p => (projectCounts.has(p.id) || (!filters.query && !filters.harness && !filters.status)) && !hiddenSet.has(p.id))
-    .map(p => ({ name: p.id, displayName: p.name, path: p.path,
+  legendProjects = overview.projects
+    .map(p => ({ name: p.id, displayName: p.name, path: p.path, category: p.category,
       accent: colony.plots.get(p.id)?.accent || 0x9dbecc,
       count: projectCounts.get(p.id)?.count || 0,
       workers: projectCounts.get(p.id)?.workers || 0,
