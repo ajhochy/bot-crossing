@@ -44,13 +44,13 @@ somebody writing that adapter.
 | Harness | Status |
 | --- | --- |
 | **[Claude Code](https://claude.com/claude-code)** (Anthropic) | ✅ **Supported** — desktop and CLI records, worktrees and live-process evidence |
-| **[Codex](https://developers.openai.com/codex/cli)** (OpenAI) | ✅ **Supported** — desktop/VS Code index plus CLI rollouts and parent-worker graphs. Exact `codex resume <id>` syntax is known when the CLI is installed; terminal launch is not verified end to end and desktop UUID targeting is unavailable |
+| **[Codex](https://developers.openai.com/codex/cli)** (OpenAI) | ✅ **Supported** — desktop/VS Code index plus CLI rollouts and parent-worker graphs. Exact `codex resume <id>` syntax is known when the CLI is installed; terminal launch is not verified end to end; installed desktop task opening is verified on macOS |
 | **[OpenCode](https://opencode.ai)** | ✅ **Supported** — sessions and parent-worker relationships from its own store; no per-thread link to open |
 | **[Antigravity CLI](https://antigravity.google)** (Google) | ✅ **Supported** — transcripts, opened through `antigravity://`. The successor to Gemini CLI, which Google stopped serving individual accounts on 18 June 2026 |
 | **[Cursor](https://cursor.com)** (Anysphere) | ✅ **Supported** — agent transcripts; the composer/sidebar threads are not read yet |
 | **[Hermes](https://github.com/opsmason/hermes)** | ✅ **Supported** — sessions per pilot profile. Lives in the terminal and chat apps, so there is no link to open |
 | **[Kilo Code](https://kilocode.ai)** | ✅ **Supported** — top-level sessions; a thread opens as its repo folder in VS Code |
-| **Rhythm** | ✅ **Supported** — read-only local session graph and persisted activity evidence; external per-session reopening is unavailable |
+| **Rhythm** | ✅ **Supported** — read-only local session graph and persisted activity evidence; exact-session reopening is available for a configured, running Rhythm Electron renderer with session-link support |
 | [Amp](https://ampcode.com) (Sourcegraph) | ⬜ Not yet |
 | [Aider](https://aider.chat) | ⬜ Not yet |
 | [Goose](https://block.github.io/goose/) (Block) | ⬜ Not yet |
@@ -233,8 +233,8 @@ for good if you would rather the view stayed put.
 - **Open** uses the capability reported by the thread's harness. Depending on the adapter that
   can be an app URL, an installed CLI command, or unavailable with a reason shown in the card.
   *Open threads in: Terminal* asks for the CLI capability when the adapter offers one. Codex
-  exposes exact CLI resume syntax, but terminal launch is not verified end to end and its desktop
-  UUID target is unavailable; Rhythm exposes no verified external per-session opener.
+  opens the exact task in its installed desktop app. Rhythm opens the exact local session in a
+  configured running Electron profile. See the [opening setup](docs/ai/testing-guide.md#native-task-opening).
 - **Viewed** (`V`), on a thread that is asking for you, puts its hand down. The harness only
   supplies read/focus evidence when it has such a signal; otherwise read state stays unknown.
   Viewed records when you looked in Bot Crossing, and the thread starts asking again the moment

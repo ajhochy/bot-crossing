@@ -72,14 +72,17 @@ was not opened during the read-only investigation. `BOT_CROSSING_CODEX_CLI` is a
 executable override; an explicit empty value disables fallback discovery so no-CLI tests are
 hermetic.
 
-The installed Codex app's task navigation API successfully selected a current worker by UUID and
-then restored its parent task. That proves the app can navigate by UUID through its own API, but the
-adapter cannot call that API. LaunchServices accepted the existing `codex://threads/<uuid>` URL,
-which only proves that the scheme has a handler; it does not prove that the app selected the requested
-task. Computer-use inspection of the Codex app was unavailable because that surface is
-safety-blocked. Scanned threads therefore mark the desktop capability unavailable and unverified.
-The server returns `appUnavailableReason` instead of reporting a successful desktop open. Exact CLI
-resume is the available action when the CLI is installed.
+The native-opening follow-up verified the installed app bundle `com.openai.codex` declares the
+`codex` scheme, and its bundled router accepts `codex://threads/<uuid>` as a local task. Discovery
+checks bundle metadata without launching the application. An explicit `BOT_CROSSING_CODEX_APP`
+override can select or disable desktop discovery.
+
+Bot Crossing now dispatches the exact UUID with macOS `open -b com.openai.codex` and waits for the
+OS dispatch result. A failed dispatcher returns an error. The real Open button selected a worker,
+and `tools/verify-codex-opening.mjs` repeated worker then parent navigation through `/api/open`,
+asserting fresh matching `ownerRoutePath=/local/<uuid>` receipts from the desktop's own logs.
+These receipts establish the requested task selection; OS exit success alone would not.
+Private task IDs and runtime logs are not committed. Terminal resume remains unqualified end to end.
 
 ## Sanitized live evidence
 

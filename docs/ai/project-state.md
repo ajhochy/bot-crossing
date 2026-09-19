@@ -1,19 +1,38 @@
 # Project state
 
 ## Current focus
-Three dependent draft slices implement the multi-harness colony. No merge or upstream submission.
+Overview counts, selected task-card cleanup and exact Codex/Rhythm Electron opening.
 
 ## Active branch / PR
-Final stack branch: `codex/rhythm-session-graph`. Review [PR #1](https://github.com/ajhochy/bot-crossing/pull/1) against main, then [PR #2](https://github.com/ajhochy/bot-crossing/pull/2) against #1, then [PR #3](https://github.com/ajhochy/bot-crossing/pull/3) against #2. All are drafts in the fork.
+`codex/overview-and-thread-opening`, based on `codex/rhythm-session-graph`; follow-up fork draft [#4](https://github.com/ajhochy/bot-crossing/pull/4). Prior fork draft stack remains [#1](https://github.com/ajhochy/bot-crossing/pull/1),
+[#2](https://github.com/ajhochy/bot-crossing/pull/2), [#3](https://github.com/ajhochy/bot-crossing/pull/3).
+The approved Rhythm receiver is [draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538) on its own `codex/electron-session-opening` branch.
 
-## In progress
-None for this implementation request. The draft stack is published, the live loopback viewer remains running, and Dev Dashboard revision 4208 records the run.
+## Completed locally
+Code, rendered UI and native opening are verified. Draft #4 is published without merging;
+the Dev Dashboard run was recorded at revision 4218. Bot Crossing is serving the current built
+UI and native-opening server on its existing loopback port. The separate Rhythm receiver draft is
+published. Its broad gate failed in three unchanged packages (API trigger parity, fork interrupted
+output and mobile edited-title visibility); causes remain uninvestigated and recorded in that PR.
 
 ## Risks / known issues
-Codex CLI invocation shape is verified, terminal resume is not qualified end to end. Codex desktop UUID opening and Rhythm external conversation opening are unavailable. Persisted Rhythm activity is not a live heartbeat. Ambiguous legacy layouts remain preserved for review. See the run report for movement, status-budget, and historical-data limits.
+Terminal resume remains unqualified end to end. The shipping Rhythm Flutter app has no external
+session link; only an explicitly configured, running patched Electron profile enables opening.
+No signed Electron package or release qualification is claimed. Persisted Rhythm activity is not a
+live heartbeat. Existing build chunk-size warning remains.
 
 ## Test status
-172 synthetic/API tests and production build pass. Real HTTP smoke passes with 15,475 unique sessions and no warnings; rendered fixture checks and live project filtering pass. No GitHub Actions configuration exists. See `runs/2026-09-18-multi-harness.md` and the acceptance contract for evidence boundaries.
+185/185 tests, production build, changed-module syntax and whitespace checks pass. Live API smoke
+returned 15,493 unique sessions and no warnings. Rendered default/historical overview, details,
+parent navigation and desktop/mobile action layouts pass. Installed Codex exact worker and parent
+routes pass through the real Open path. Rhythm native sandbox cold/second-instance selection passed;
+13 focused receiver contracts and native live exact-target switching now pass. Live main/API/engine
+process IDs stayed unchanged. Updating an already running renderer required one Reload and normal
+Google sign-in under existing host security policy.
+The shared workflow wrapper fails on its assumed absent typecheck script; repo-native documented
+checks were used directly. No GitHub Actions workflow exists.
 
-## Next step
-Review the draft stack in dependency order. No deployment or harness modifications are required to use the local viewer.
+## Review handoff
+The stacked fork drafts are ready for review; no merge has been performed.
+Detailed evidence: [run report](runs/2026-09-18-overview-opening.md).
+The packaged Colony integration and native UI/menu plan is tracked separately in [Rhythm epic #1525](https://github.com/ajhochy/Rhythm/issues/1525), with four milestones and twelve implementation issues.

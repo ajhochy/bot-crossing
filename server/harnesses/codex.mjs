@@ -26,6 +26,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { StringDecoder } from 'node:string_decoder'
 import { exists, findExecutable, jsonLines, listDirs, listFiles, num, readHead } from '../lib/fsutil.mjs'
+import { codexDesktop } from '../lib/codex-desktop.mjs'
 
 const HOME = os.homedir()
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex')
@@ -535,6 +536,7 @@ function activityOf(lifecycle, lastActivityAt, now) {
 }
 
 async function scanThreads() {
+  const desktop = await codexDesktop()
   const [rows, rollouts, index, cli] = await Promise.all([
     databaseRows(),
     scanRollouts(),
@@ -602,15 +604,15 @@ async function scanThreads() {
       threadSource: row?.thread_source || meta.threadSource || '',
       agentNickname,
       agentRole,
-      canOpen: cliAvailable,
-      canOpenReason: cliAvailable
+      canOpen: desktop.available || cliAvailable,
+      canOpenReason: desktop.available ? 'Open this task in Codex' : cliAvailable
         ? 'Installed Codex CLI can resume the exact session UUID in its recorded cwd'
-        : 'No verified opener is available: Codex CLI was not found and desktop UUID targeting is unverified',
+        : 'No verified opener is available: Codex desktop and CLI were not found',
       openCapabilities: {
         app: {
-          available: false,
-          verified: false,
-          reason: 'Codex desktop UUID deep-link targeting is not verified',
+          available: desktop.available,
+          verified: desktop.available,
+          reason: desktop.available ? 'Open this task in Codex' : 'Codex desktop is not installed or not available on this platform; use Resume in terminal',
         },
         terminal: {
           available: cliAvailable,
@@ -654,12 +656,14 @@ async function openThread(ref) {
     return { ok: false, error: 'No openable Codex session id on that thread' }
   }
   const bin = await cliBinary()
+  const desktop = await codexDesktop()
   const command = bin ? { argv: [bin, 'resume', id], cwd: typeof cwd === 'string' ? cwd : '' } : undefined
   return {
     ok: true,
     url: `codex://threads/${id}`,
     command,
-    appUnavailableReason: 'Opening an exact Codex task UUID in the desktop app is not verified; use Resume in terminal',
+    appBundleId: desktop.bundleId,
+    appUnavailableReason: desktop.available ? undefined : 'Codex desktop is not installed or not available on this platform; use Resume in terminal',
   }
 }
 

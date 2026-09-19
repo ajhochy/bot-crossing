@@ -83,3 +83,27 @@ export function filterSessions(threads, { query = '', checkout = '', harness = '
         status === 'archived' ? !!t.archived : !t.running && t.activity !== 'unknown')) &&
     (!needle || [t.title, t.projectName, t.cwd, t.gitBranch, t.harnessName, t.agentName, t.profile].join(' ').toLowerCase().includes(needle)))
 }
+
+/** A retained identity is history until at least one grouped checkout is present. */
+export function projectCategory(project) {
+  const present = (project.checkouts || []).filter(c => !c.missing)
+  if (present.some(c => c.kind === 'git')) return 'repository'
+  if (present.some(c => c.kind === 'directory')) return 'workspace'
+  return 'historical'
+}
+
+/** Share one location scope between the inventory and the colony without dropping records. */
+export function projectOverview(threads, inventory, filters = {}, hiddenProjects = []) {
+  const hidden = hiddenProjects instanceof Set ? hiddenProjects : new Set(hiddenProjects)
+  const classified = inventory.map(p => ({ ...p, category: projectCategory(p) }))
+  const included = classified.filter(p => filters.includeHistorical || p.category !== 'historical')
+  const ids = new Set(included.map(p => p.id))
+  const visible = filterSessions(threads.filter(t => ids.has(t.projectId || t.project)), { ...filters, checkout: '' })
+  const matching = new Set(visible.map(t => t.projectId || t.project))
+  const projects = included.filter(p => !hidden.has(p.id) &&
+    (matching.has(p.id) || (!filters.query && !filters.harness && !filters.status)))
+  const counts = { repository: 0, workspace: 0, historical: 0 }
+  for (const p of projects) counts[p.category]++
+  return { projects, threads: visible, counts,
+    historicalCount: classified.filter(p => p.category === 'historical' && !hidden.has(p.id)).length }
+}

@@ -1,0 +1,213 @@
+{
+  "run_id": "2026-09-18-overview-opening",
+  "issue": null,
+  "date": "2026-09-18",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "overview-c1",
+      "text": "Implement honest overview counts/sections for repositories vs other workspaces",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "overview-c2",
+      "text": "Missing/unknown historical locations hidden from default overview AND colony",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "overview-c3",
+      "text": "Explicitly accessible via historical toggle/filter, searchable when opted in",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "overview-c4",
+      "text": "Retain all session records/preferences/IDs; preserve grouping overrides including historical checkout grouped into live repo",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "overview-ui",
+      "text": "Rendered overview separates repositories and other workspaces and historical toggle changes both inventory and colony",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Rendered default showed 31 repositories, 45 workspaces and 76 rows; historical toggle showed all 408 rows, then restored the default."
+    },
+    {
+      "criterion_id": "overview-card",
+      "text": "Selected task puts exact path and branch on readable rows and evidence behind details",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "overview-card-ui",
+      "text": "Task card actions remain readable without overlap at narrow widths; details and parent navigation remain accessible",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Rendered desktop and 390x844 mobile screenshots: separate path/branch, expandable details and parent action; all action buttons fit without overlap."
+    },
+    {
+      "criterion_id": "opening-c1",
+      "text": "An installed Codex desktop opens the exact selected task or worker without requiring the CLI.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "opening-c2",
+      "text": "Failed OS launch is shown as an error rather than an opened success.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "opening-c3",
+      "text": "Missing desktop support remains unavailable with an actionable reason.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "opening-c4",
+      "text": "Verify selected task navigation through the installed Codex application.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real Bot Crossing Open button and opt-in HTTP probe each produced a fresh exact worker/parent route receipt in installed Codex desktop logs."
+    },
+    {
+      "criterion_id": "opening-c6",
+      "text": "Scanned Codex tasks expose installed desktop capability without the CLI.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "rhythm-opening-c1",
+      "text": "Exact Rhythm local session ID reaches the running Electron profile.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "rhythm-opening-c2",
+      "text": "Unpatched or stopped Rhythm remains unavailable.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "rhythm-opening-c3",
+      "text": "Invalid or URL-shaped IDs never reach the launcher.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "rhythm-opening-c4",
+      "text": "Cached sessions refresh opening availability without database changes.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Synthetic behavioral contract; see run report for live evidence."
+    },
+    {
+      "criterion_id": "opening-c5",
+      "text": "Open the selected Rhythm conversation in Rhythm.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real Bot Open reached requested Rhythm URI. After one renderer update reload and supported sign-in, native UI showed matching session ID/title; subsequent same-profile switching also selected the exact target. Electron main/API/engine PIDs unchanged."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "workflow-configuration",
+      "description": "Shared ai-workflow checks assumes absent typecheck script; documented native syntax/tests/build ran successfully.",
+      "detected_by": "issue and PR wrapper logs"
+    },
+    {
+      "process_category": "probe-configuration",
+      "description": "Initial native Codex probe lacked Origin header; repaired to match browser request and reran successfully.",
+      "detected_by": "same-origin HTTP rejection followed by exact task-route receipts"
+    },
+    {
+      "process_category": "runtime-handoff",
+      "description": "Fragment navigation retained the old loaded renderer after dist replacement; one normal Reload plus supported Google sign-in activated the new build. Subsequent exact-target switching passed.",
+      "detected_by": "Native URL and displayed session mismatch, then matched after reload/sign-in"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "distill",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow-orchestrator",
+        "description": "TodoWrite unavailable; current-plan.md holds the durable checklist.",
+        "detected_by": "Tool schema and plan"
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "failure-postmortem",
+        "description": "Several related UI smoke interactions were consolidated into one postmortem after the checks rather than recorded immediately after each interaction.",
+        "detected_by": "Turn sequence"
+      }
+    ]
+  },
+  "implementation_files": [
+    "server/api.mjs",
+    "server/lib/codex-desktop.mjs",
+    "server/lib/rhythm-desktop.mjs",
+    "server/harnesses/codex.mjs",
+    "server/harnesses/rhythm.mjs",
+    "src/game/projects.js",
+    "src/main.js",
+    "src/ui/hud.js",
+    "src/ui/styles.css"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep native route receipts and real receiver selection checks separate from synthetic OS-dispatch coverage."
+}

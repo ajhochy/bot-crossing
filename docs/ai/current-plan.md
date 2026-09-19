@@ -1,5 +1,19 @@
 # Multi-harness colony implementation
 
+## Follow-up: overview and native opening
+
+User requested clearer project counts, working Codex/Rhythm reopening, then cleaner thread cards.
+Work is on `codex/overview-and-thread-opening`, stacked above the original drafts.
+
+- [x] Inspect current counts and installed navigation routes; baseline 172 tests pass.
+- [x] Record and reproduce native-opening regressions before implementation.
+- [x] Separate repositories, other workspaces and opt-in historical locations in map and legend.
+- [x] Simplify the thread card metadata and prevent action-row overflow.
+- [x] Enable installed Codex deep links with checked OS dispatch; preserve CLI fallback.
+- [x] Resolve Rhythm Electron sessionId handling under the user-approved narrow source-change exception; keep live API/engine untouched.
+- [x] Run all tests/build, verify rendered UI and native opening, and record evidence.
+- [x] Update docs, publish fork draft #4, record dashboard run (revision 4218) and run review.
+
 ## Intent and boundaries
 Show the logical project, repository, exact checkout, harness, parent task, and worker without requiring users to decode worktree folder names. Preserve the colony art and existing interactions. All discovery is read-only; only Bot Crossing storage contains preferences and identity caches. No cleanup/deletion actions, harness migrations, live service restarts, or upstream PRs.
 
@@ -11,7 +25,7 @@ Skipped: the supplied brief specifies priorities, safety boundaries, branch stra
 2. `codex/codex-session-graph`: reconcile Codex SQLite and rollouts before building nested parent/worker relationships; incremental lifecycle evidence and honest unknown states; retain session IDs and exact checkout/navigation.
 3. `codex/rhythm-session-graph`: dedicated read-only Rhythm integration and engine deduplication; standalone OpenCode retained; offline diagnostics and navigation capabilities.
 
-Each later draft PR targets the preceding branch in the user's fork. No merge. Source changes and fixtures in this repository only.
+Each later draft PR targets the preceding branch in the user's fork. No merge. The original slices changed this repository only. The approved native-opening follow-up also changes the separate Rhythm Electron renderer in an isolated branch.
 
 ## Model
 - Repository identity is a canonical common Git directory, never a remote or basename. Independent clones default to separate logical projects.

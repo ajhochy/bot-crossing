@@ -502,8 +502,9 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 284px;
-  padding: 11px;
+  width: 304px;
+  max-width: calc(100vw - 24px);
+  padding: 12px;
   display: none;
   flex-direction: column;
   gap: 9px;
@@ -622,16 +623,45 @@ body {
   height: 14px;
 }
 
-.thread-pop .pair {
-  display: flex;
+.thread-pop .thread-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
-.thread-pop .pair .btn {
-  flex: 1;
+.thread-pop .thread-actions .btn {
   min-width: 0;
-  height: 34px;
+  min-height: 36px;
+  white-space: nowrap;
 }
+
+.thread-pop #btn-open,
+.thread-pop #btn-open-terminal { grid-column: 1 / -1; }
+
+.thread-pop .session-context,
+.thread-pop .session-location,
+.thread-pop .session-details,
+.thread-pop .session-open-notice { font-size: 11px; line-height: 1.5; }
+
+.thread-pop .session-context { color: var(--muted); }
+.thread-pop .session-location { display: grid; gap: 3px; }
+.thread-pop .session-path,
+.thread-pop .session-branch {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.thread-pop .session-branch { color: var(--muted); }
+.thread-pop .session-branch::before { content: '⑂ '; }
+.thread-pop .session-open-notice { margin: 0; color: #ffd8bb; }
+.thread-pop .session-details summary { color: var(--muted); cursor: pointer; }
+.thread-pop .session-details-body { margin: 8px 0 0; max-height: 140px; overflow-y: auto; }
+.thread-pop .session-details-body dt { color: var(--muted); margin-top: 6px; }
+.thread-pop .session-details-body dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+.thread-pop .session-details :focus-visible { outline: 2px solid #a9d9ff; outline-offset: 2px; }
 
 .progress {
   height: 5px;
@@ -835,6 +865,34 @@ body {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
+
+.side .project-category {
+  margin: 12px 6px 5px;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.side .project-category:first-child { margin-top: 4px; }
+
+.side .project-category-note {
+  margin: 2px 6px 8px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.historical-filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  color: var(--dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.historical-filter input { margin: 0 3px 0 0; }
 
 .side .hidden-block {
   flex: none;
@@ -1572,7 +1630,7 @@ kbd {
 
 /* Checkout inventory inherits the colony panel material and compact control language. */
 .session-filters { padding: 10px 14px; display: grid; gap: 8px; }
-.session-filters input, .session-filters select, .group-label select { width: 100%; min-width: 0; color: var(--text, #e4ebf1); background: #182231; border: 1px solid #526170; border-radius: 6px; padding: 8px; font: inherit; }
+.session-filters input[type='search'], .session-filters select, .group-label select { width: 100%; min-width: 0; color: var(--text, #e4ebf1); background: #182231; border: 1px solid #526170; border-radius: 6px; padding: 8px; font: inherit; }
 .session-filters input::placeholder { color: #b4c2d1; }
 .session-filters .pair > select { width: 50%; }
 .repo .n small { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 10px; font-weight: 400; color: #b4c2d1; }
@@ -1582,11 +1640,10 @@ kbd {
 .checkout summary { cursor: pointer; line-height: 1.5; }
 .checkout summary span { display: block; color: #c4d0dd; font-size: 11px; }
 .checkout-path { margin-top: 8px; font: 11px/1.5 ui-monospace, monospace; }
-.checkout p, .session-evidence { font-size: 11px; line-height: 1.5; color: #c4d0dd; margin: 8px 0; overflow-wrap: anywhere; }
+.checkout p { font-size: 11px; line-height: 1.5; color: #c4d0dd; margin: 8px 0; overflow-wrap: anywhere; }
 .checkout .pair { flex-wrap: wrap; }
 .group-label { display: block; font-size: 11px; margin-top: 10px; }
 .group-label select { margin-top: 6px; }
-.session-evidence { max-height: 95px; overflow: auto; user-select: text; }
 .side .threads { min-height: 110px; }
 .session-filters :focus-visible, .checkout :focus-visible { outline: 2px solid #a9d9ff; outline-offset: 2px; }
 
@@ -1596,5 +1653,4 @@ kbd {
 .checkouts { padding: 0 14px; }
 
 [hidden] { display: none !important; }
-.thread-pop .pair { flex-wrap: wrap; }
 .scan-notice { margin: 0; padding: 8px 14px; font-size: 11px; line-height: 1.5; max-height: 75px; overflow: auto; color: #ffd8bb; }

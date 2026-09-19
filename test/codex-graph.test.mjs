@@ -85,7 +85,7 @@ async function fixture() {
   }
 
   const scan = async (env = {}) =>
-    withEnv({ CODEX_HOME: home, BOT_CROSSING_CODEX_CLI: '', ...env }, async () => {
+    withEnv({ CODEX_HOME: home, BOT_CROSSING_CODEX_CLI: '', BOT_CROSSING_CODEX_APP: '', ...env }, async () => {
       const adapter = (await import(`../server/harnesses/codex.mjs?fixture=${encodeURIComponent(home)}`)).default
       return adapter.scanThreads()
     })
@@ -326,7 +326,7 @@ test('P2-2: stale or absent lifecycle evidence is unknown rather than quiet', as
   }
 })
 
-test('P2-3: opening capabilities distinguish exact CLI resume from an unverified desktop target', async () => {
+test('P2-3: opening capabilities distinguish exact CLI resume from a missing desktop app', async () => {
   // Regression caught: a URL string alone was presented as proof that the desktop app would select
   // the requested UUID, while the installed CLI capability was not exposed on scanned threads.
   const fx = await fixture()
@@ -352,12 +352,12 @@ test('P2-3: opening capabilities distinguish exact CLI resume from an unverified
     assert.equal(thread.openCapabilities.app.verified, false)
     assert.match(thread.canOpenReason, /CLI.*resume/i)
 
-    const opened = await withEnv({ BOT_CROSSING_CODEX_CLI: bin }, () =>
+    const opened = await withEnv({ BOT_CROSSING_CODEX_CLI: bin, BOT_CROSSING_CODEX_APP: '' }, () =>
       import(`../server/harnesses/codex.mjs?open=${encodeURIComponent(bin)}`).then((adapter) =>
         adapter.default.openThread(thread.ref)
       )
     )
-    assert.match(opened.appUnavailableReason, /not verified/i)
+    assert.match(opened.appUnavailableReason, /not installed/i)
     const { present } = await import('../server/api.mjs')
     assert.deepEqual(await present(opened, 'app'), {
       ok: false,

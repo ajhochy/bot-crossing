@@ -93,16 +93,15 @@ Rhythm result with a harness diagnostic, leaving other harnesses available.
 
 ## Navigation
 
-No verified external per-session navigation exists. Neither the checked-in macOS Info.plist nor
-the installed app Info.plist defines `CFBundleURLTypes`, and `AppDelegate.swift` has no URL-open
-handler. Rhythm does have an internal notification payload `agentSession:<local id>` that selects
-the Agents screen and session inside the running Flutter process
-(`apps/desktop_flutter/lib/app/core/layout/app_shell.dart:142-171`), but that string is not an OS URL
-scheme.
+The installed Flutter app has no registered external session URL handler. Its internal notification
+payload is not an OS scheme. The native-opening follow-up adds a separate, explicitly configured
+Rhythm Electron route; see [receiver contract and qualification](rhythm-opening-followup.md).
 
-The adapter consequently reports `canOpen: false`, marks app and terminal capabilities unavailable,
-and returns a specific refusal from `openThread`. It also refuses `newSession`. A future verified
-deep link can replace this without changing stored refs.
+Bot Crossing checks the patched renderer capability marker and a running isolated Electron profile,
+then sends `rhythm://app/index.html#/agents?sessionId=<local-id>` in non-owning interactive mode.
+It never substitutes the engine SDK ID. Availability refreshes even when the database scan is cached.
+Missing configuration, unpatched renderer and stopped profile remain unavailable with specific reasons.
+Terminal resume and new-session creation remain unavailable in this adapter.
 
 ## Verification evidence
 

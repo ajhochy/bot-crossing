@@ -101,7 +101,7 @@ async function loadRhythm(file) {
   )
   return {
     ...adapter,
-    scanThreads: (options) => withEnv({ RHYTHM_DB: file }, () => adapter.scanThreads(options)),
+    scanThreads: (options) => withEnv({ RHYTHM_DB: file, BOT_CROSSING_NATIVE_OPENERS: path.join(path.dirname(file), 'no-openers.json') }, () => adapter.scanThreads(options)),
     diagnostic: () => withEnv({ RHYTHM_DB: file }, () => adapter.diagnostic()),
   }
 }
@@ -262,7 +262,7 @@ test('P3-2: persisted Rhythm identity and bounded activity remain honest while s
   }
 })
 
-test('P3-3: Rhythm reports per-session navigation unavailable instead of inventing a deep link', async () => {
+test('P3-3: unconfigured Rhythm keeps navigation unavailable instead of inventing a Flutter deep link', async () => {
   // Regression caught: treating the internal `agentSession:<id>` notification payload as an OS
   // URL produces an Open button that silently fails outside the already-running Flutter process.
   const fx = await makeRhythmFixture()
@@ -274,10 +274,10 @@ test('P3-3: Rhythm reports per-session navigation unavailable instead of inventi
     assert.equal(thread.canOpen, false)
     assert.equal(thread.openCapabilities.app.available, false)
     assert.equal(thread.openCapabilities.app.verified, false)
-    assert.match(thread.navigationReason, /no verified.*session/i)
-    assert.deepEqual(rhythm.openThread(thread.ref), {
+    assert.match(thread.navigationReason, /not configured/i)
+    assert.deepEqual(await withEnv({ BOT_CROSSING_NATIVE_OPENERS: path.join(fx.home, 'no-openers.json') }, () => rhythm.openThread(thread.ref)), {
       ok: false,
-      error: 'Rhythm has no verified external link to an individual session.',
+      error: 'Rhythm Electron opening is not configured. The installed Flutter app has no external session link.',
     })
     assert.equal(rhythm.newSession('/repo/bot-crossing').ok, false)
   } finally {

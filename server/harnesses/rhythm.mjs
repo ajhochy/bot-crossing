@@ -10,6 +10,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { exists } from '../lib/fsutil.mjs'
+import { rhythmDesktop, rhythmAppCommand, validRhythmSessionId } from '../lib/rhythm-desktop.mjs'
 
 const HOME = os.homedir()
 const ACTIVE_WINDOW_MS = 30 * 60 * 1000
@@ -107,12 +108,14 @@ function normaliseGraph(threads) {
   return threads
 }
 
-function cloneThreads(threads) {
+function cloneThreads(threads, desktop) {
   return threads.map((thread) => ({
     ...thread,
+    canOpen: desktop.available && validRhythmSessionId(thread.ref.sessionId),
+    navigationReason: desktop.reason,
     dedupeIds: [...thread.dedupeIds],
     openCapabilities: {
-      app: { ...thread.openCapabilities.app },
+      app: { available: desktop.available && validRhythmSessionId(thread.ref.sessionId), verified: desktop.available && validRhythmSessionId(thread.ref.sessionId), reason: desktop.reason },
       terminal: { ...thread.openCapabilities.terminal },
     },
     ref: { ...thread.ref },
@@ -133,8 +136,9 @@ async function scanThreads(options = {}) {
   }
 
   const sig = await signature(file)
+  const desktop = await rhythmDesktop()
   const customNow = Number.isFinite(options.now)
-  if (!customNow && cache?.file === file && cache.signature === sig) return cloneThreads(cache.threads)
+  if (!customNow && cache?.file === file && cache.signature === sig) return cloneThreads(cache.threads, desktop)
 
   let db
   try {
@@ -254,7 +258,7 @@ async function scanThreads(options = {}) {
     diagnostics.set(file, '')
     const normalised = normaliseGraph(threads)
     if (!customNow) cache = { file, signature: sig, threads: normalised }
-    return cloneThreads(normalised)
+    return cloneThreads(normalised, desktop)
   } catch {
     diagnostics.set(file, 'Rhythm session database could not be read with the detected schema')
     return []
@@ -267,11 +271,13 @@ async function scanThreads(options = {}) {
   }
 }
 
-function openThread(ref) {
-  if (typeof ref?.sessionId !== 'string' || !ref.sessionId || typeof ref?.cwd !== 'string') {
+async function openThread(ref) {
+  if (!validRhythmSessionId(ref?.sessionId)) {
     return { ok: false, error: 'No valid Rhythm session reference on that thread' }
   }
-  return { ok: false, error: 'Rhythm has no verified external link to an individual session.' }
+  const desktop = await rhythmDesktop()
+  if (!desktop.available) return { ok: false, error: desktop.reason }
+  return { ok: true, appCommand: rhythmAppCommand(desktop, ref.sessionId), note: 'Opened in Rhythm Electron' }
 }
 
 function newSession() {

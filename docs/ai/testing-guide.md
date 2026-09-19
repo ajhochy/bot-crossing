@@ -21,3 +21,45 @@ This opt-in read-only check calls the real `/api/threads`, `/api/harnesses`, and
 Use the actual browser to check distinct same-name clones, main/arbitrary/unused worktrees, grouping and reset through reload, selected session cwd, search/harness/status/checkout filters, nested workers, archived parent navigation, missing-path disabled actions, and unknown activity. Stop only the preview server to check failed save and stale-state recovery. Inspect desktop and mobile screenshots. Do not invoke fixture New conversation actions against installed harnesses.
 
 Recorded qualification and navigation limits: `docs/ai/runs/2026-09-18-multi-harness.md` and adapter investigation documents.
+
+## Native task opening
+
+Codex desktop discovery checks its bundle ID and URL scheme (macOS), or the registered scheme
+handler (Linux). `BOT_CROSSING_CODEX_APP` optionally overrides the macOS application path; an empty
+value disables it. Missing CLI does not disable installed desktop opening. OS dispatch failures are
+reported as errors. Terminal resume is a separate, still unqualified end-to-end path.
+
+Rhythm Electron needs the companion renderer session-link update. When updating an already running
+shell, reload its renderer once and complete normal Google sign-in before enabling this configuration;
+fragment-only links do not refresh loaded assets. Configure only a known running
+non-owning Electron profile in Bot Crossing's ignored `data/native-openers.json` (or the file named
+by `BOT_CROSSING_NATIVE_OPENERS`):
+
+```json
+{
+  "rhythm": {
+    "shellPath": "/absolute/Rhythm/apps/electron",
+    "userDataPath": "/absolute/separate-electron-profile",
+    "executable": "/absolute/path/to/Electron"
+  }
+}
+```
+
+All paths must be absolute. Discovery requires the Electron shell package, the generated
+`apps/web/dist/desktop-capabilities.json` marker, an executable, and a live profile lock. Opening
+passes the exact local session ID to that profile in `--interactive-smoke` mode. It does not resume
+an agent or start owning services. Missing configuration, old builds, and stopped profiles each have
+an explicit unavailable reason. The shipping Flutter app is not an external navigation target.
+
+To repeat Codex native verification with real existing tasks (it changes app selection only):
+
+```sh
+BOT_CROSSING_VERIFY_NATIVE_OPEN=1 BOT_CROSSING_CODEX_TEST_IDS=<worker-uuid>,<parent-uuid> node tools/verify-codex-opening.mjs
+```
+
+The final ID is left selected. The probe requires a fresh exact-route receipt from the desktop's own
+logs, not just HTTP success. Keep private identifiers/logs and local opener configuration out of Git.
+
+For UI smoke, compare the default repository/workspace sections with the historical toggle; verify
+search and colony visibility follow it without changing archive state. Select a worker, expand Task
+details, inspect its parent, and check all actions at desktop and 390px widths. Capture screenshots.
