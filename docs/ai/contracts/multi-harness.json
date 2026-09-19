@@ -79,7 +79,7 @@
       "mode": "integration",
       "test_file": "test/rhythm.test.mjs",
       "test_id": "P3-1",
-      "status": "planned"
+      "status": "pass"
     },
     {
       "criterion_id": "P3-2",
@@ -87,7 +87,7 @@
       "mode": "integration",
       "test_file": "test/rhythm.test.mjs",
       "test_id": "P3-2",
-      "status": "planned"
+      "status": "pass"
     },
     {
       "criterion_id": "P3-3",
@@ -95,20 +95,22 @@
       "mode": "integration",
       "test_file": "test/rhythm.test.mjs",
       "test_id": "P3-3",
-      "status": "planned"
+      "status": "pass"
     },
     {
       "criterion_id": "P3-LIVE",
       "text": "Live Rhythm engine mapping and persisted offline fallback inspected; unsupported navigation is explicit",
       "mode": "manual",
-      "status": "planned",
+      "status": "pass",
       "evidence": "8141 Rhythm records, 7952 extant engine claims deduplicated, independent OpenCode retained; direct read-only store fixtures",
       "limitation": "No verified external opener exists; installed packaged Rhythm runtime was not launched or qualified"
     }
   ],
   "stack": "javascript",
   "not_tested": [
-    "P3 is a dependent slice",
-    "End-to-end Codex terminal resume; unsupported desktop OS deep link"
+    "End-to-end Codex terminal resume",
+    "Unsupported Codex desktop OS deep link",
+    "Installed packaged Rhythm navigation",
+    "Production task lifecycle transitions beyond observed scans"
   ]
 }

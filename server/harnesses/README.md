@@ -9,6 +9,25 @@ Nothing in `server/scan.mjs`, `server/api.mjs`, or anywhere under `src/` should 
 If you find yourself editing those to land a harness, that is a bug in this seam — please say so
 in the PR, because the next person will hit it too.
 
+The current registry supports Claude Code, Codex, Cursor, Antigravity, Hermes, Kilo Code,
+Rhythm and OpenCode. Support means their local session evidence can be drawn; reopening is a
+separate capability. In particular, Codex desktop UUID targeting and Rhythm external session
+navigation are unavailable. Codex can provide exact CLI resume syntax when its CLI exists, but
+terminal launch has not been verified end to end.
+
+## Project and session model
+
+Adapters report the exact session `cwd` and their best project label. The resolver then uses
+canonical Git common-directory evidence for the stable project ID and canonical worktree roots
+for checkout IDs. Linked worktrees share a project, independent clones stay separate, and an
+unknown or missing path remains explicit. Bot Crossing's grouping overrides and identity cache
+live only in its own `data/` directory.
+
+Return durable workers as ordinary threads with `parentId`. This makes one flat graph that can
+represent nested, orphaned and archived-parent cases without duplicating a child. `running` and
+`unread` are nullable: lack of evidence is `null`, accompanied by `activity: 'unknown'` and a
+short `activityEvidence`, rather than a guess.
+
 ## The shape of it
 
 ```js
@@ -46,16 +65,20 @@ broken adapter costs you its own threads and nothing else. Prefer that over retu
 
 ### `openThread(ref)` / `newSession(dir)`
 
-Return `{ ok: true, url }` and the server hands that URL to the OS opener. `openThread` gets
-the `ref` from the thread it belongs to; `newSession` gets an absolute directory that the
-server has already checked still exists.
+Return `{ ok: true, url }`, `{ ok: true, command }`, both, or `{ ok: false, error }`.
+`openThread` gets the `ref` from the thread it belongs to; `newSession` gets an absolute
+directory that the server has already checked still exists. An app URL should only be exposed
+as an available capability when it targets the intended thread reliably.
 
 Add `command: { argv, cwd }` — the harness's own CLI resuming the same thread, with an absolute `argv[0]` —
 when the CLI is installed, and the server runs it in a terminal for a machine with no desktop app or a person who asked for one.
 Never spawn it yourself.
 
-If your harness has no deep link, return `{ ok: false, error: '…' }` and say why — the UI
-shows the message rather than pretending the click worked.
+If your harness has no verified opener, return `{ ok: false, error: '…' }` and say why — the UI
+shows the reason rather than pretending the click worked. Codex currently offers its documented
+`codex resume <id>` CLI shape when the executable is installed, while exact desktop UUID
+targeting remains unavailable; the terminal launch path has not been verified end to end.
+Rhythm has no verified external per-session opener.
 
 ### There is no `setArchived`, and that is deliberate
 
@@ -68,45 +91,54 @@ genuinely landed on disk. It just did not *mean* anything: the desktop app serve
 loaded at launch, so the thread stayed in its list until the app restarted, and the app rewrote the
 record from memory the next time it touched the thread. Holding that together took a re-assert on
 every scan, a `ps` sweep to guess whether the app had re-read the file, and a *pending* state for
-the gap between them. All of that is gone, and the scan no longer starts a subprocess at all.
+the gap between them. All of that is gone. Harness scans do not start harness executables;
+project resolution may run bounded, read-only `git worktree list` and `git status` subprocesses
+with optional locks disabled.
 
 Archiving in the harness's own UI still works and is still the right way to do it — your adapter
 reports it through the `archived` field and the bot goes home on the next poll.
 
 ## The `Thread` your adapter returns
 
-Only `id` is truly required, but the colony gets duller the more you leave out — `project` is
-what earns a repo its own zone, and `lastActivityAt` is what sorts the whole map.
+Only `id` is truly required, but the colony gets duller the more you leave out. An adapter's
+`project` is its best human label before project resolution. After `/api/threads` resolves Git
+evidence, `project` and `projectId` are the stable opaque project identity, while `projectName`
+is the label shown to people and `legacyProject` retains the adapter value.
 
 | Field | Type | What it means |
 | --- | --- | --- |
 | `id` | string | **Unique across every harness.** A UUID is fine; otherwise prefix it, e.g. `my-harness:1234` |
 | `title` | string | Thread title. `'Untitled thread'` if the harness has none |
 | `preview` | string | First prompt, trimmed — shown on the thread card |
-| `project` | string | Repo/folder **name**. This is what claims a hex zone |
+| `project` | string | Adapter-provided repo/folder label. The resolver replaces it with stable identity in the API response |
 | `projectPath` | string | Absolute path to the repo root |
 | `worktree` | string | Worktree name, or `''` |
-| `cwd` | string | Where the thread is actually working |
+| `cwd` | string | Exact directory where the thread is actually working; keep it even when nested in a checkout |
 | `gitBranch` | string | Branch name, or `''` |
 | `model` / `effort` | string | Shown on the thread card |
 | `createdAt` | number | Epoch ms |
 | `lastActivityAt` | number | Epoch ms. Sorts the colony and drives the "asleep for 3 days" behaviour |
 | `lastFocusedAt` | number | Epoch ms, `0` if unknowable |
-| `running` | boolean | Working **right now** — the bot hammers away |
-| `unread` | boolean | Moved on since you last looked — the bot stops and holds a `?` |
+| `activity` | `'active' \| 'quiet' \| 'unknown'` | Normalized activity conclusion |
+| `activityEvidence` | string | Concise source for that conclusion |
+| `running` | boolean \| null | `true` only with current positive evidence; `null` when activity is unknowable |
+| `unread` | boolean \| null | Moved on since last focus, or `null` when the harness has no focus/read evidence |
 | `hasError` | boolean | Errored — the bot slumps, red eyes |
 | `starred` / `routine` / `prState` | | Optional extras; `prState: 'merged'` triggers the confetti |
 | `archived` | boolean | Archived in the harness's own records. Read-only — reporting it is all an adapter does |
 | `sizeBytes` | number | Transcript size. **This is how finished a building looks**, on a log scale |
 | `source` | string | Free-form, for your own bookkeeping (the Claude adapter uses `desktop` / `cli`) |
 | `canOpen` | boolean | Whether this thread can be opened. The UI greys the button out |
-| `subagents` | array | Optional. Errands this thread has out *right now*: `{ id, task, lastActivityAt }`. Drawn as small companions at the parent's building — no zone, no badge, not counted. Omit it and nothing changes |
+| `openCapabilities` | object | Optional app/terminal availability, verification and unavailable reasons |
+| `parentId` | string \| null | Prefixed thread ID of the parent task. Every worker is a normal thread in one flat graph |
+| `orphaned` | boolean | Parent evidence exists but that parent is not present in this scan |
+| `subagents` | array | Legacy compatibility for transient errands. New durable worker integrations should return each child once as a thread with `parentId` |
 | `ref` | object | **Opaque.** Whatever *you* need to find this thread again |
 
 ### About `ref`
 
 `ref` is the whole reason the browser does not know what a session id looks like. Your adapter
-puts whatever it needs in there, the page hands it straight back on open and archive, and
+puts whatever it needs in there, the page hands it straight back on open, and
 nothing between the two ever inspects it.
 
 Keep it small and keep it serialisable — it makes a round trip through JSON on every action.
@@ -114,9 +146,10 @@ Do not put a file handle, a class instance, or a secret in it.
 
 ## Ground rules
 
-- **Read-only. No exceptions.** `data/colony.json` is the only file Bot Crossing writes,
-  anywhere. A harness's transcripts and records are somebody's actual work; the colony is a
-  viewer, not an editor. If an adapter seems to need a write, it does not — say so in an issue.
+- **Read-only. No exceptions.** Bot Crossing writes only its own `data/colony.json` preferences
+  and `data/identities.json` identity cache. A harness's transcripts and records are somebody's
+  actual work; the colony is a viewer, not an editor. If an adapter seems to need a write, it
+  does not — say so in an issue.
 - **Never run anything out of another application's bundle.** Not to read from it, not to
   execute it. Only files under the user's own home directory. Opening a thread goes through a
   URL the OS resolves, or a command the user already has on `PATH`.
@@ -144,9 +177,16 @@ Verified on a real machine:
   `~/.claude/sessions/*.json`. `CLAUDE_CONFIG_DIR` (the CLI's own override for `~/.claude`) and
   `BOT_CROSSING_CLAUDE_DESKTOP` (the session store) point both roots elsewhere, which is how
   `test/harness.test.mjs` fakes an install. Implemented in `claude-code.mjs`.
-- **Codex CLI** — transcripts in `~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<uuid>.jsonl`,
-  with records shaped `{ timestamp, type, payload }`, and what looks like an index at
-  `~/.codex/session_index.jsonl`. Not implemented yet.
+- **Codex** — read-only thread metadata from the newest compatible `~/.codex/state_<n>.sqlite`
+  plus rollouts in `~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<uuid>.jsonl`. The adapter joins
+  them by session UUID, retains CLI-only rollouts, builds a flat parent graph and uses bounded
+  lifecycle evidence. Implemented in `codex.mjs`.
+- **Hermes** — one SQLite store per pilot profile. The adapter probes schema capabilities per
+  profile, isolates profile failures, excludes cron rows and treats only an unexpired turn lease
+  as positive running evidence. Implemented in `hermes.mjs`.
+- **Rhythm** — read-only persisted session/profile rows with parent-worker relationships and
+  bounded status evidence. It deliberately reports external per-session navigation unavailable.
+  Implemented in `rhythm.mjs`.
 
 For anything else, the fastest way in is usually to start a throwaway session in that harness
 and watch which files change:
@@ -157,8 +197,14 @@ find ~ -maxdepth 4 -newermt '-2 minutes' -type f 2>/dev/null | grep -iv Library/
 
 ## Checking your work
 
-There is no test suite to run yet. What the Claude Code adapter was verified against, and what
-a new one should clear too:
+Run the existing suite first:
+
+```bash
+npm test
+```
+
+Adapter fixtures use temporary synthetic stores and must never point at or modify a real harness
+database. A new adapter should also clear these focused checks:
 
 1. `node --check server/harnesses/my-harness.mjs`
 2. With the app running, `GET /api/harnesses` lists every registered harness and whether
@@ -177,6 +223,8 @@ a new one should clear too:
      console.log(t.length, "threads"); console.dir(t[0], { depth: 4 })
    })'
    ```
-4. `npm run dev`, then confirm the bots appear on the right plots, the thread card fills
-   in, and Open does what you expect.
-5. Archive one thread and check it shows as archived **in the harness's own UI**, not just here.
+4. `npm run dev`, then confirm the bots appear on the right plots, the thread card fills in,
+   unknown activity stays labeled unknown, and available/unavailable Open behavior matches the
+   adapter's declared capability.
+5. Archive one thread and confirm only Bot Crossing's `data/colony.json` changes. Harness files
+   must remain unchanged.

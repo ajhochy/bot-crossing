@@ -20,4 +20,4 @@ This opt-in read-only check calls the real `/api/threads`, `/api/harnesses`, and
 
 Use the actual browser to check distinct same-name clones, main/arbitrary/unused worktrees, grouping and reset through reload, selected session cwd, search/harness/status/checkout filters, nested workers, archived parent navigation, missing-path disabled actions, and unknown activity. Stop only the preview server to check failed save and stale-state recovery. Inspect desktop and mobile screenshots. Do not invoke fixture New conversation actions against installed harnesses.
 
-Adapter qualification is recorded in the investigation documents as each dependent slice lands.
+Recorded qualification and navigation limits: `docs/ai/runs/2026-09-18-multi-harness.md` and adapter investigation documents.

@@ -50,6 +50,7 @@ Baseline d05ac2f verified clean. The existing scanner disambiguates display name
 - [x] Author failing observable regression contracts before implementation.
 - [x] Implement and verify Priority 1 plus Hermes compatibility.
 - [x] Implement and verify Priority 2.
-- [ ] Implement and verify Priority 3.
-- [ ] Full-stack production build, realistic scan measurements and browser verification.
-- [ ] Review commits, draft fork PRs in dependency order, record limitations and dashboard run.
+- [x] Implement and verify Priority 3.
+- [x] Full production build, realistic scan measurements and browser verification.
+- [x] Review commits and prepare draft fork PR stack in dependency order; record limitations.
+- [x] Confirm draft PRs #1, #2, #3 and record the final Dev Dashboard run (revision 4208).
