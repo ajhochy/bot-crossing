@@ -7,6 +7,7 @@ import { schemeHasHandler, schemeOf } from './lib/xdg.mjs'
 import { openInTerminal } from './lib/terminal.mjs'
 import { focusWindowOfPid } from './lib/windows.mjs'
 import {
+  createProjectResolver,
   defaultHarness,
   harnessStatus,
   newSession as harnessNewSession,
@@ -17,8 +18,9 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.BOT_CROSSING_DATA || path.join(here, '..', 'data')
 const STATE_FILE = path.join(DATA_DIR, 'colony.json')
+const resolveProjects = createProjectResolver({ dataDir: DATA_DIR })
 
-const STATE_VERSION = 2
+const STATE_VERSION = 3
 
 /**
  * v1 keyed everything on a bare session id, because Claude Code was the only harness and its
@@ -58,6 +60,10 @@ const emptyState = () => ({
   seen: {},
   hiddenProjects: [],
   viewedAt: {},
+  projectOverrides: {},
+  projectAliases: {},
+  projectMigrations: {},
+  sessionMigrations: {},
   settings: null,
   updatedAt: 0,
 })
@@ -77,11 +83,16 @@ async function readState() {
       seen: asObject(raw.seen),
       hiddenProjects: asArray(raw.hiddenProjects).map(String).filter(Boolean),
       viewedAt: asObject(raw.viewedAt),
+      projectOverrides: asObject(raw.projectOverrides),
+      projectAliases: asObject(raw.projectAliases),
+      projectMigrations: asObject(raw.projectMigrations),
+      sessionMigrations: asObject(raw.sessionMigrations),
       settings: raw.settings && typeof raw.settings === 'object' ? raw.settings : null,
       updatedAt: Number(raw.updatedAt) || 0,
     }
-  } catch {
-    return emptyState()
+  } catch (err) {
+    if (err.code === 'ENOENT') return emptyState()
+    throw new Error('Colony state could not be read. The saved file has been left untouched; repair or restore it before saving.')
   }
 }
 
@@ -112,6 +123,10 @@ async function writeState(next) {
     seen: asObject(next.seen),
     hiddenProjects: asArray(next.hiddenProjects).map(String).filter(Boolean),
     viewedAt: asObject(next.viewedAt),
+    projectOverrides: asObject(next.projectOverrides),
+    projectAliases: asObject(next.projectAliases),
+    projectMigrations: asObject(next.projectMigrations),
+    sessionMigrations: asObject(next.sessionMigrations),
     settings: next.settings && typeof next.settings === 'object' ? next.settings : null,
     updatedAt: Date.now(),
   }
@@ -223,6 +238,7 @@ export async function present(result, via = 'app') {
     }
     return runInTerminal(result.command)
   }
+  if (result.appUnavailableReason) return { ok: false, error: result.appUnavailableReason }
 
   // A `pid` names a live process whose thread already has a window on this machine — a session
   // running in a terminal right now. Fronting that window is tried before the URL, because the
@@ -395,15 +411,26 @@ export async function apiMiddleware(req, res, next) {
 
   try {
     if (url.pathname === '/api/threads' && req.method === 'GET') {
-      const threads = await reconcileArchived(await scanThreads())
+      // Explicit test-only process configuration. Never accepted from a request or a saved preference.
+      const fixture = process.env.BOT_CROSSING_FIXTURE
+      const observed = fixture ? JSON.parse(await fsp.readFile(fixture, 'utf8')) : await scanThreads()
+      if (!Array.isArray(observed)) throw new Error('Preview fixture must contain a session array')
+      const scan = await resolveProjects(await reconcileArchived(observed))
       // A harness that is present but cannot read its own store says so here, rather than
       // appearing healthy in the list while quietly contributing nothing.
-      const warnings = (await harnessStatus()).filter((h) => h.detected && h.error).map((h) => h.error)
-      return send(res, 200, { threads, scannedAt: Date.now(), warnings })
+      const warnings = fixture ? ['Synthetic preview — no harness data is being read'] :
+        (await harnessStatus()).filter((h) => h.error).map((h) => h.error)
+      return send(res, 200, { ...scan, scannedAt: Date.now(), warnings })
     }
 
     if (url.pathname === '/api/harnesses' && req.method === 'GET') {
+      if (process.env.BOT_CROSSING_FIXTURE) return send(res, 200, { harnesses: [], fixture: true })
       return send(res, 200, { harnesses: await harnessStatus() })
+    }
+
+    if (url.pathname === '/api/checkout' && req.method === 'GET') {
+      const checkout = await resolveProjects.inspect(url.searchParams.get('id'))
+      return checkout ? send(res, 200, { checkout }) : send(res, 404, { error: 'Checkout is no longer in the scan; refresh the colony' })
     }
 
     if (url.pathname === '/api/state' && req.method === 'GET') {
@@ -430,7 +457,7 @@ export async function apiMiddleware(req, res, next) {
     if (url.pathname === '/api/state' && req.method === 'PUT') {
       const body = await readJsonBody(req)
       const base = Number(body.baseUpdatedAt) || 0
-      return serialise(async () => {
+      return await serialise(async () => {
         const current = await readState()
         if (base && current.updatedAt !== base) return send(res, 409, current)
         return send(res, 200, await writeState(body))

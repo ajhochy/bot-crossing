@@ -319,7 +319,7 @@ const CLI_DIRS = [
   '/usr/local/bin',
   '/usr/bin',
 ]
-const cliBinary = () => findExecutable('codex', CLI_DIRS)
+const cliBinary = () => process.env.BOT_CROSSING_CODEX_CLI !== undefined ? process.env.BOT_CROSSING_CODEX_CLI || null : findExecutable('codex', CLI_DIRS)
 
 /**
  * `codex://threads/<id>` is registered by the Codex desktop app; the OS opener does the rest.

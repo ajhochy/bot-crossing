@@ -39,6 +39,7 @@ export function hiddenCatalog(hidden, threads) {
   const names = [...new Set(hidden.map(String).filter(Boolean))].sort((a, b) => a.localeCompare(b))
   return names.map((name) => ({
     name,
+    displayName: threads.find(t => t.project === name)?.projectName || name,
     count: threads.filter((t) => !t.archived && (t.project || 'unknown') === name).length,
   }))
 }

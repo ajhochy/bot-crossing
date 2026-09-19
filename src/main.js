@@ -25,6 +25,8 @@ import {
 } from './game/api.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
+import { groupProjects, migrateProjectState, migrateSessionState, filterSessions } from './game/projects.js'
+import { mergeState } from './game/merge-state.js'
 
 /**
  * Boot and the outer game loop.
@@ -63,6 +65,11 @@ const colony = new Colony(engine.scene, settings, engine.camera, engine.renderer
 
 let state = { archived: [], archivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {} }
 let threads = []
+let sourceThreads = []
+let projectInventory = []
+let groupedInventory = []
+let filters = { query: '', harness: '', status: '', checkout: '' }
+let selectedCheckout = ''
 /** Last legend built for the bottom bar, kept so the open zone's chip can light up between polls. */
 let legendProjects = []
 /** The zone layout as last written to the colony file, so an unchanged map is not re-saved. */
@@ -126,6 +133,12 @@ const actions = {
 
   /** Fly to the next astronaut in a given state, cycling through them on repeat presses. */
   focusStatus: (status) => {
+    if (status === 'workers' || status === 'conversations') {
+      filters.status = status === 'workers' ? 'worker' : ''
+      hud.$('#filter-status').value = filters.status
+      applyThreads(sourceThreads)
+      return
+    }
     const key = status === 'agents' ? null : status
     const pool = colony.astronauts.agents.filter((a) => (key ? a.status === key : true))
     if (!pool.length) {
@@ -155,6 +168,46 @@ const actions = {
   },
 
   select: (id) => select(id, {}),
+  filterSessions: (next) => {
+    filters = { ...filters, ...next }
+    applyThreads(sourceThreads)
+  },
+  selectCheckout: (id) => {
+    selectedId = null
+    hud.setSelection(null, null)
+    selectedCheckout = id
+    filters.checkout = id
+    syncProject()
+    if (id) fetch(`/api/checkout?id=${encodeURIComponent(id)}`).then(r => r.json()).then(result => {
+      if (result.error) throw new Error(result.error)
+      for (const p of projectInventory) p.checkouts = p.checkouts.map(c => c.id === id ? { ...c, ...result.checkout } : c)
+      applyThreads(sourceThreads)
+    }).catch(err => hud.toast(err.message, 'err'))
+  },
+  groupCheckout: async (checkoutId, projectId) => {
+    const before = structuredClone(state)
+    const overrides = { ...before.projectOverrides }
+    if (projectId) overrides[checkoutId] = projectId
+    else delete overrides[checkoutId]
+    // Save before rescanning so a reload cannot briefly resurrect the old grouping.
+    try {
+      const saved = await saveState({ ...before, projectOverrides: overrides })
+      // Keep edits made while this request was in flight, plus any merged edits from other tabs.
+      state = mergeState(before, state, saved)
+      applyThreads(sourceThreads)
+      const selected = threads.find(t => t.id === selectedId)
+      if (selected) {
+        selectedProject = selected.projectId
+        selectedCheckout = selected.checkoutId
+      } else {
+        const project = groupedInventory.find(p => p.checkouts.some(c => c.id === checkoutId))
+        if (project) { selectedProject = project.id; selectedCheckout = checkoutId }
+      }
+      queueSave()
+      syncProject()
+      hud.toast(projectId ? 'Checkout grouping saved' : 'Git grouping restored')
+    } catch (err) { syncProject(); hud.toast(err.message, 'err') }
+  },
 
   focusThread: (id) => select(id, { fly: true }),
 
@@ -181,6 +234,13 @@ const actions = {
     }
   },
 
+  copyPath: async (path) => {
+    try { await navigator.clipboard.writeText(path); hud.toast('Path copied') }
+    catch { hud.toast(copyFallback(path) ? 'Path copied' : 'Could not reach clipboard') }
+  },
+  revealPath: async (path) => {
+    try { await revealFolder(path) } catch (err) { hud.toast(err.message, 'err') }
+  },
   revealProject: async () => {
     const folder = selectedProject && pathForProject(selectedProject)
     if (!folder) return
@@ -246,11 +306,11 @@ const actions = {
     }
   },
 
-  openThread: async () => {
+  openThread: async (via) => {
     const thread = threads.find((t) => t.id === selectedId)
     if (!thread) return
     try {
-      const shown = await openThread(thread, settings.get('openIn'))
+      const shown = await openThread(thread, via || settings.get('openIn'))
       colony.astronauts.celebrate(thread.id)
       const name = thread.harnessName || 'your harness'
       hud.toast(shown.via === 'terminal' ? `Opened ${name} in a terminal` : `Opened in ${name}`)
@@ -315,6 +375,14 @@ let lastPhrase = 0
 function select(id, { fly = false } = {}) {
   selectedId = id
   const agent = id ? colony.agentFor(id) : null
+  const recorded = id && threads.find(t => t.id === id)
+  if (!agent && recorded) {
+    selectedProject = recorded.project
+    selectedCheckout = recorded.checkoutId || ''
+    hud.setSelection({ status: statusFor(recorded), trim: { getHex: () => colony.plots.get(recorded.project)?.accent || 0x9dbecc } }, recorded)
+    syncProject()
+    return
+  }
   if (!agent) {
     selectedId = null
     rig.setFollow(null)
@@ -325,6 +393,7 @@ function select(id, { fly = false } = {}) {
   }
   colony.astronauts.setSelected(agent)
   const thread = threads.find((t) => t.id === id) || agent.thread
+  selectedCheckout = thread.checkoutId || ''
   hud.setSelection(agent, thread)
   // It answers. One of six little phrases, from where it is standing, never twice in a row.
   if (agent.id !== lastVoiced) {
@@ -345,8 +414,10 @@ function select(id, { fly = false } = {}) {
 
 /** Open a zone's sidebar. Any selected astronaut from a different zone lets go. */
 function selectProject(name, { fly = false } = {}) {
-  if (!name || !colony.plots.has(name)) return
+  if (!name) return
   selectedProject = name
+  selectedCheckout = ''
+  filters.checkout = ''
   const current = threads.find((t) => t.id === selectedId)
   if (current && current.project !== name) select(null, {})
   else syncProject()
@@ -372,6 +443,8 @@ function harnessLabel(id) {
  * a new thread in whichever one it is mostly used from.
  */
 function harnessForProject(name) {
+  const selected = threads.find(t => t.id === selectedId && t.project === name)
+  if (selected?.harness) return selected.harness
   const counts = new Map()
   for (const thread of colony.threads.values()) {
     if (thread.project !== name || !thread.harness) continue
@@ -388,21 +461,11 @@ function harnessForProject(name) {
 }
 
 function pathForProject(name) {
-  const counts = new Map()
-  for (const thread of colony.threads.values()) {
-    if (thread.project !== name) continue
-    const dir = thread.projectPath || thread.cwd
-    if (!dir) continue
-    counts.set(dir, (counts.get(dir) ?? 0) + 1)
-  }
-  let best = ''
-  let bestCount = 0
-  for (const [dir, n] of counts) {
-    if (n <= bestCount) continue
-    best = dir
-    bestCount = n
-  }
-  return best
+  const selected = threads.find(t => t.id === selectedId && t.project === name)
+  if (selected) return selected.cwd || selected.checkout?.path || ''
+  const project = groupedInventory.find(p => p.id === name)
+  return project?.checkouts.find(c => c.id === selectedCheckout)?.path ||
+    project?.checkouts.find(c => c.main && !c.missing)?.path || project?.checkouts[0]?.path || ''
 }
 
 /** Push the open zone's current contents at the sidebar. Closes it if the zone is gone. */
@@ -411,39 +474,27 @@ function syncProject() {
   // Folded-away repos are listed alongside the ones you hid by hand. Same principle: nothing
   // leaves the map without somewhere on screen saying where it went.
   const folded = hiddenCatalog([...(colony.dormantProjects || [])], threads)
+  const project = groupedInventory.find(p => p.id === selectedProject)
   const plot = selectedProject ? colony.plots.get(selectedProject) : null
-  if (!plot) {
+  if (!project) {
     selectedProject = null
     hud.setProject(null)
     hud.setLegend(legendProjects, null, hidden, folded)
     return
   }
   const now = Date.now()
-  const list = [...colony.threads.values()]
-    .filter((thread) => thread.project === plot.name)
-    .map((thread) => ({
-      id: thread.id,
-      title: thread.title,
-      worktree: thread.worktree,
-      lastActivityAt: thread.lastActivityAt,
-      status: statusFor(thread, now),
-    }))
-    // Whoever wants something first, then most recently touched — the same order of
-    // importance the badges use above their heads.
-    .sort((a, b) => {
-      const rank = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
-      return rank || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)
-    })
-
+  const all = threads.filter(t => t.project === project.id)
+  const list = filterSessions(all, filters).map(t => ({ ...t, status: statusFor(t, now) }))
+    .sort((a, b) => Number(b.running === true) - Number(a.running === true) ||
+      (b.lastActivityAt || 0) - (a.lastActivityAt || 0))
   hud.setProject({
-    name: plot.name,
-    accent: plot.accent,
-    path: pathForProject(plot.name),
-    threads: list,
-    selectedId,
+    ...project, name: project.id, displayName: project.name,
+    accent: plot?.accent || 0x9dbecc, path: pathForProject(project.id),
+    pathAvailable: !project.checkouts.find(c => c.id === (selectedCheckout || project.checkouts.find(c => c.main)?.id || project.checkouts[0]?.id))?.missing,
+    threads: list, allThreads: all, selectedId, selectedCheckout,
+    options: groupedInventory.map(p => ({ id: p.id, name: p.name, path: p.path })),
+    overrides: state.projectOverrides || {}, filters,
   })
-  // The legend is the same selection seen from the bottom of the screen: keep it in step
-  // here rather than only on the next poll.
   hud.setLegend(legendProjects, selectedProject, hidden, folded)
 }
 
@@ -909,14 +960,25 @@ function applyThreads(list) {
     drag.pendingThreads = list
     return
   }
-  list = withErrands(list)
+  if (list !== threads) sourceThreads = list
+  const grouped = groupProjects(withErrands(sourceThreads), projectInventory, state.projectOverrides, state.projectAliases)
+  list = grouped.threads
+  const byId = new Map(list.map(t => [t.id, t]))
+  list = list.map(t => t.parentId ? { ...t, parentTitle: byId.get(t.parentId)?.title, parentArchived: byId.get(t.parentId)?.archived } : t)
+  groupedInventory = grouped.projects
+  const migrated = migrateProjectState(migrateSessionState(state, list), list)
+  if (migrated !== state) {
+    state = migrated
+    colony.restoreLayout(state.plots)
+    queueSave()
+  }
 
   // A thread you have said you looked at stops counting as unread until it moves on again.
   // Done here rather than in `statusFor` so the card, the badge and the astronaut all agree.
   const viewed = state.viewedAt || {}
   threads = list.map((t) => {
     const at = viewed[t.id]
-    return at && t.lastActivityAt <= at ? { ...t, unread: false } : t
+    return at ? { ...t, unread: t.lastActivityAt > at, readState: t.lastActivityAt > at ? 'unread' : 'read' } : t
   })
   list = threads
   const archivedSet = new Set(state.archived)
@@ -928,30 +990,41 @@ function applyThreads(list) {
   // one. A thread already on the books is simply already outside.
   const known = new Set(Object.keys(state.seen || {}))
   let firstSeen = false
+  state.seen = { ...(state.seen || {}) }
   for (const t of list) {
     if (state.seen?.[t.id]) continue
-    state.seen = { ...(state.seen || {}), [t.id]: Date.now() }
+    state.seen[t.id] = Date.now()
     firstSeen = true
   }
   if (firstSeen) queueSave()
 
-  const stats = colony.setThreads(list, archivedSet, hiddenSet, known)
+  const visible = filterSessions(list, { ...filters, checkout: '' })
+  const projectCounts = new Map()
+  for (const t of visible) {
+    if (!projectCounts.has(t.project)) projectCounts.set(t.project, { count: 0, workers: 0 })
+    projectCounts.get(t.project)[t.parentId ? 'workers' : 'count']++
+  }
+  const stats = colony.setThreads(visible, archivedSet, hiddenSet, known)
+  stats.conversations = visible.filter(t => !t.parentId).length
+  stats.workers = visible.filter(t => !!t.parentId).length
   hud.setStats(stats)
   chimeForNewWaiting(list, archivedSet, hiddenSet)
 
-  legendProjects = colony.plotOrder
-    .map((plot) => ({
-      name: plot.name,
-      accent: plot.accent,
-      count: list.filter((t) => !t.archived && !archivedSet.has(t.id) && t.project === plot.name).length,
-      urgent: colony.urgentPlots?.has(plot.id) ?? false,
-    }))
+  legendProjects = groupedInventory.filter(p => (projectCounts.has(p.id) || (!filters.query && !filters.harness && !filters.status)) && !hiddenSet.has(p.id))
+    .map(p => ({ name: p.id, displayName: p.name, path: p.path,
+      accent: colony.plots.get(p.id)?.accent || 0x9dbecc,
+      count: projectCounts.get(p.id)?.count || 0,
+      workers: projectCounts.get(p.id)?.workers || 0,
+      urgent: colony.urgentPlots?.has(p.id) || false }))
     .sort((a, b) => b.count - a.count)
 
   // Keep the card honest if the thread it is showing changed underneath it.
   if (selectedId) {
+    const selected = list.find(t => t.id === selectedId)
+    if (selected) { selectedProject = selected.projectId; selectedCheckout = selected.checkoutId }
     const still = colony.agentFor(selectedId)
     if (still) hud.setSelection(still, list.find((t) => t.id === selectedId) || still.thread)
+    else if (list.some(t => t.id === selectedId)) select(selectedId)
     else select(null, {})
   }
   // Which also repaints the legend, so the open zone's chip is lit by the same pass.
@@ -963,7 +1036,7 @@ function applyThreads(list) {
   const signature = JSON.stringify(layout)
   if (signature !== lastLayout) {
     lastLayout = signature
-    state.plots = layout
+    state.plots = { ...state.plots, ...layout }
     queueSave()
   }
 }
@@ -1002,9 +1075,18 @@ async function poll() {
   polling = true
   try {
     const res = await fetchThreads()
+    const notice = hud.$('.scan-notice')
+    const legacy = Object.keys(state.plots || {}).filter(k => !k.startsWith('project:') && !state.projectMigrations?.[k])
+    notice.textContent = [...(res.warnings || []), legacy.length ? `${legacy.length} legacy layout names retained for migration review.` : ''].filter(Boolean).join(' · ')
+    notice.hidden = !notice.textContent
+    projectInventory = res.projects || []
     applyThreads(res.threads || [])
     hud.removeBoot()
   } catch (err) {
+    if (sourceThreads.length) applyThreads(sourceThreads.map(t => ({ ...t, stale: true, running: null,
+      activity: 'unknown', activityEvidence: 'Scan unavailable; last observation retained' })))
+    hud.$('.scan-notice').textContent = 'Scan unavailable. The previous view may be stale; retrying automatically.'
+    hud.$('.scan-notice').hidden = false
     hud.toast(err.message || 'Could not reach the thread scanner', 'err')
     hud.removeBoot()
   } finally {
@@ -1112,8 +1194,8 @@ engine.add({
       hud.updateAvatar(colony.astronauts.faceTexture.image)
       // A selected astronaut that walked off the roster should not keep a stale card open.
       const agent = colony.agentFor(selectedId)
-      if (!agent) select(null, {})
-      else hud.placeCard(screenOf(agent))
+      if (!agent && !threads.some(t => t.id === selectedId)) select(null, {})
+      else hud.placeCard(agent ? screenOf(agent) : { x: Math.max(180, (window.innerWidth - 334) / 2), y: window.innerHeight / 2 })
     }
     hud.setFps(engine.perf, engine.viewport, `${colony.astronauts.visibleCount} bots · ${colony.particles.liveCount} bits`)
     ambience.update(dt, engine.camera, soundWorld())

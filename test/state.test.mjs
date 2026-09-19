@@ -88,7 +88,7 @@ test('a v1 file has its bare ids prefixed on read, once', async () => {
       JSON.stringify({ version: 1, archived: [id], archivedAt: { [id]: 5 }, updatedAt: 1 })
     )
     const state = await (await call('/api/state')).json()
-    assert.equal(state.version, 2)
+    assert.equal(state.version, 3)
     assert.deepEqual(state.archived, [`claude-code:${id}`])
     assert.deepEqual(Object.keys(state.archivedAt), [`claude-code:${id}`])
   })
