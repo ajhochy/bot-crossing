@@ -34,6 +34,7 @@ const rows = [
   session('claude-code:preview-main', 'Review the shared checkout', main, 'claude-code', { running: true, activity: 'running' }),
   session('codex:preview-worker', 'Plant the worker beds', worker, 'codex', { parentId: 'codex:preview-parent', running: true, activity: 'running' }),
   session('codex:preview-nested', 'Check the irrigation', worker, 'codex', { parentId: 'codex:preview-worker', hasError: true }),
+  session('codex:preview-orphan', 'Worker with a missing parent', worker, 'codex', { parentId: 'codex:missing-parent', orphaned: true, running: null, activity: 'unknown' }),
   session('rhythm:preview-parent', 'Plan next season', main, 'rhythm', { archived: true, profile: 'planner' }),
   session('rhythm:preview-child', 'Inspect the greenhouse', worker, 'rhythm', { parentId: 'rhythm:preview-parent', running: true, activity: 'running', agentName: 'Gardener', profile: 'builder' }),
   session('hermes:default:clone', 'Independent clone notes', clone, 'hermes', { running: null, activity: 'unknown', profile: 'default' }),

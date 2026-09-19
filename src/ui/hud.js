@@ -802,7 +802,9 @@ export class Hud {
       thread.unread == null ? 'Read status unknown; mark viewed to track changes here.' : ''].filter(Boolean).join(' · ')
     const relation = this.$('.session-parent')
     relation.hidden = !thread.parentId
-    relation.textContent = thread.parentId ? 'Inspect parent task' : ''
+    relation.disabled = !!thread.orphaned
+    relation.title = thread.orphaned ? 'Parent conversation is unavailable in this local store' : 'Inspect the parent conversation'
+    relation.textContent = thread.parentId ? thread.orphaned ? 'Parent unavailable' : 'Inspect parent task' : ''
     relation.onclick = () => this.actions.focusThread?.(thread.parentId)
     // Only offered when there is something to dismiss. A third button on every card would
     // crowd the two that are always worth having, and "Viewed" on a thread that is not asking

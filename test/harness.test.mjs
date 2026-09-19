@@ -102,11 +102,19 @@ test('codex offers `codex resume <id>` in the thread cwd alongside its deep link
   })
 })
 
-test('codex with no CLI installed offers the deep link alone', posixOnly, async () => {
+test('codex with no CLI installed refuses the unverified desktop deep link', posixOnly, async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'bot-crossing-nocli-'))
   try {
-    const opened = await withEnv({ PATH: dir, BOT_CROSSING_CODEX_CLI: '' }, () => codex.openThread({ sessionId: SESSION_ID }))
-    assert.deepEqual(opened, { ok: true, url: `codex://threads/${SESSION_ID}`, command: undefined })
+    const opened = await withEnv({ PATH: dir, BOT_CROSSING_CODEX_CLI: '' }, () =>
+      codex.openThread({ sessionId: SESSION_ID })
+    )
+    assert.deepEqual(opened, {
+      ok: true,
+      url: `codex://threads/${SESSION_ID}`,
+      command: undefined,
+      appUnavailableReason:
+        'Opening an exact Codex task UUID in the desktop app is not verified; use Resume in terminal',
+    })
   } finally {
     await fsp.rm(dir, { recursive: true, force: true })
   }
@@ -179,7 +187,8 @@ test('a task started long ago is not still running', async () => {
   await fsp.utimes(path.join(day, file), old, old)
   const h = await scanWith(home)
   const [t] = await h.scanThreads()
-  assert.equal(t.running, false, 'Codex writes nothing when killed, so the window has to bound it')
+  assert.equal(t.running, null, 'a stale start is not evidence that the task is either running or quiet')
+  assert.equal(t.activity, 'unknown')
   await fsp.rm(home, { recursive: true, force: true })
 })
 

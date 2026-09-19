@@ -47,7 +47,7 @@
       "mode": "integration",
       "test_file": "test/codex-graph.test.mjs",
       "test_id": "P2-1",
-      "status": "planned"
+      "status": "pass"
     },
     {
       "criterion_id": "P2-2",
@@ -55,7 +55,7 @@
       "mode": "integration",
       "test_file": "test/codex-graph.test.mjs",
       "test_id": "P2-2",
-      "status": "planned"
+      "status": "pass"
     },
     {
       "criterion_id": "P2-3",
@@ -63,13 +63,13 @@
       "mode": "integration",
       "test_file": "test/codex-graph.test.mjs",
       "test_id": "P2-3",
-      "status": "planned"
+      "status": "pass"
     },
     {
       "criterion_id": "P2-LIVE",
       "text": "Live Codex parent/worker graph and navigation capability boundaries inspected",
       "mode": "manual",
-      "status": "planned",
+      "status": "pass",
       "evidence": "Current task appears once with three workers; installed CLI help and app navigation API inspected",
       "limitation": "CLI terminal resume not exercised end to end; OS desktop UUID targeting unverified and disabled"
     },
@@ -108,6 +108,7 @@
   ],
   "stack": "javascript",
   "not_tested": [
-    "P2 and P3 are dependent slices; see current-plan.md"
+    "P3 is a dependent slice",
+    "End-to-end Codex terminal resume; unsupported desktop OS deep link"
   ]
 }

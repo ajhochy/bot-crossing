@@ -24,7 +24,8 @@
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { exists, findExecutable, jsonLines, listDirs, listFiles, num, readHead, readTail } from '../lib/fsutil.mjs'
+import { StringDecoder } from 'node:string_decoder'
+import { exists, findExecutable, jsonLines, listDirs, listFiles, num, readHead } from '../lib/fsutil.mjs'
 
 const HOME = os.homedir()
 const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex')
@@ -32,7 +33,11 @@ const SESSIONS_DIR = path.join(CODEX_HOME, 'sessions')
 const SESSION_INDEX = path.join(CODEX_HOME, 'session_index.jsonl')
 
 const HEAD_BYTES = 128 * 1024
-const TAIL_BYTES = 64 * 1024
+const READ_BYTES = 64 * 1024
+const MAX_DIRECT_LIFECYCLE_BYTES = 64 * 1024
+/** Retain JSON structure and short keys while discarding potentially large private string bodies. */
+const MAX_LIFECYCLE_SKELETON_CHARS = 64 * 1024
+const MAX_JSON_STRING_CHARS = 2 * 1024
 /** Codex writes nothing when it is killed, so a stale `task_started` needs a time bound too. */
 const ACTIVE_WINDOW_MS = 30 * 60 * 1000
 
@@ -105,15 +110,13 @@ async function databaseRows() {
     const columns = new Set(db.prepare('PRAGMA table_info(threads)').all().map((r) => r.name))
     if (!['id', 'cwd'].every((n) => columns.has(n))) return new Map()
 
-    // Threads a task spawned are not conversations anybody had; each would stand on the map as
-    // an astronaut nobody talks to.
-    const children = new Set()
+    let edgeJoin = ''
+    let edgeParent = "''"
     if (tables.has('thread_spawn_edges')) {
       const edge = new Set(db.prepare('PRAGMA table_info(thread_spawn_edges)').all().map((r) => r.name))
-      if (edge.has('child_thread_id')) {
-        for (const r of db.prepare('SELECT child_thread_id FROM thread_spawn_edges').all()) {
-          if (typeof r.child_thread_id === 'string') children.add(r.child_thread_id)
-        }
+      if (edge.has('child_thread_id') && edge.has('parent_thread_id')) {
+        edgeJoin = 'LEFT JOIN thread_spawn_edges e ON e.child_thread_id = t.id'
+        edgeParent = 'e.parent_thread_id'
       }
     }
 
@@ -127,17 +130,21 @@ async function databaseRows() {
           ${column(columns, 'first_user_message')} AS first_user_message,
           ${column(columns, 'source')} AS source,
           ${column(columns, 'thread_source')} AS thread_source,
+          ${column(columns, 'agent_nickname')} AS agent_nickname,
+          ${column(columns, 'agent_role')} AS agent_role,
           ${column(columns, 'git_branch')} AS git_branch,
           ${column(columns, 'model')} AS model,
           ${column(columns, 'reasoning_effort')} AS reasoning_effort,
           ${column(columns, 'rollout_path')} AS rollout_path,
           ${column(columns, 'archived', '0')} AS archived,
+          ${edgeParent} AS parent_thread_id,
           ${timeExpr(columns, 'created_at_ms', 'created_at')} AS created_at_ms,
           ${timeExpr(columns, 'updated_at_ms', 'updated_at')} AS updated_at_ms
         FROM threads t
+        ${edgeJoin}
       `)
       .all()
-      .filter((r) => UUID.test(r.id || '') && !children.has(r.id) && r.thread_source !== 'subagent')
+      .filter((r) => UUID.test(r.id || ''))
 
     return new Map(rows.map((r) => [r.id, r]))
   } catch {
@@ -196,14 +203,31 @@ function contentText(content) {
 
 /** What the head of a transcript knows about itself, for a session the database has not indexed. */
 function readHeadMeta(records) {
-  const meta = { cwd: '', gitBranch: '', model: '', effort: '', createdAt: 0, prompt: '' }
+  const meta = {
+    cwd: '',
+    gitBranch: '',
+    model: '',
+    effort: '',
+    createdAt: 0,
+    prompt: '',
+    parentId: '',
+    threadSource: '',
+    agentNickname: '',
+    agentRole: '',
+  }
   for (const r of records) {
     const p = r?.payload
     if (!p || typeof p !== 'object') continue
     if (r.type === 'session_meta') {
+      const spawn = p.source?.subagent?.thread_spawn
       meta.cwd ||= p.cwd || ''
       meta.gitBranch ||= p.git?.branch || ''
       meta.createdAt ||= Date.parse(p.timestamp || r.timestamp || '') || 0
+      meta.parentId ||=
+        p.parent_thread_id || spawn?.parent_thread_id || ''
+      meta.threadSource ||= p.thread_source || ''
+      meta.agentNickname ||= p.agent_nickname || spawn?.agent_nickname || ''
+      meta.agentRole ||= p.agent_role || spawn?.agent_role || ''
     } else if (r.type === 'turn_context') {
       meta.cwd = p.cwd || meta.cwd
       meta.model = p.model || meta.model
@@ -215,19 +239,209 @@ function readHeadMeta(records) {
   return meta
 }
 
+const LIFECYCLE_TYPES = new Set(['task_started', 'task_complete', 'turn_aborted'])
+
 /**
- * The last lifecycle record. `task_started` with nothing after it is mid-turn; `turn_aborted` is
- * somebody pressing escape, which is not an error and must not redden an astronaut's eyes.
+ * Build a bounded, valid JSON skeleton for one record.
+ *
+ * Lifecycle records can be large because `task_complete.last_agent_message` is on the same line
+ * as the marker. Keeping the complete line defeats the memory bound; skipping it leaves the
+ * preceding `task_started` authoritative forever. This scanner retains JSON punctuation and
+ * short strings (including keys and lifecycle values), replaces a long string with a one-character
+ * placeholder, and validates string escapes as it goes. JSON.parse then provides the structural
+ * check: marker-like words inside message text cannot become lifecycle evidence.
  */
-function readLifecycle(records) {
-  let last = null
-  for (const r of records) {
-    const p = r?.payload
-    if (r?.type === 'event_msg' && ['task_started', 'task_complete', 'turn_aborted'].includes(p?.type)) {
-      last = { type: p.type, error: Boolean(p.error) }
+class JsonSkeleton {
+  constructor() {
+    this.parts = []
+    this.chars = 0
+    this.string = null
+    this.stringChars = 0
+    this.stringOverflow = false
+    this.escape = false
+    this.unicode = 0
+    this.invalid = false
+  }
+
+  add(value) {
+    if (this.invalid) return
+    this.chars += value.length
+    if (this.chars > MAX_LIFECYCLE_SKELETON_CHARS) this.invalid = true
+    else this.parts.push(value)
+  }
+
+  addString(value) {
+    if (this.stringOverflow) return
+    this.stringChars += value.length
+    if (this.stringChars > MAX_JSON_STRING_CHARS) {
+      this.stringOverflow = true
+      this.string = null
+    } else {
+      this.string.push(value)
     }
   }
-  return last
+
+  push(text) {
+    for (const char of text) {
+      if (this.invalid) return
+      if (this.string === null && !this.stringOverflow) {
+        if (char === '"') {
+          this.string = ['"']
+          this.stringChars = 1
+        } else {
+          this.add(char)
+        }
+        continue
+      }
+
+      if (this.unicode) {
+        if (!/[0-9a-f]/i.test(char)) {
+          this.invalid = true
+          return
+        }
+        this.addString(char)
+        this.unicode -= 1
+        continue
+      }
+      if (this.escape) {
+        if (!['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'].includes(char)) {
+          this.invalid = true
+          return
+        }
+        this.addString(char)
+        this.escape = false
+        if (char === 'u') this.unicode = 4
+        continue
+      }
+      if (char === '\\') {
+        this.addString(char)
+        this.escape = true
+      } else if (char === '"') {
+        this.add(this.stringOverflow ? '"_"' : `${this.string.join('')}"`)
+        this.string = null
+        this.stringChars = 0
+        this.stringOverflow = false
+      } else if (char.charCodeAt(0) < 0x20) {
+        this.invalid = true
+        return
+      } else {
+        this.addString(char)
+      }
+    }
+  }
+
+  finish() {
+    if (this.invalid || this.string !== null || this.stringOverflow || this.escape || this.unicode) return ''
+    return this.parts.join('')
+  }
+}
+
+function lifecycleJson(text) {
+  try {
+    const record = JSON.parse(text)
+    const payload = record?.payload
+    return record?.type === 'event_msg' && LIFECYCLE_TYPES.has(payload?.type)
+      ? { type: payload.type, error: Boolean(payload.error) }
+      : null
+  } catch {
+    return null
+  }
+}
+
+/** Parse one complete JSONL record range without ever retaining its full string bodies. */
+async function lifecycleRange(fh, start, end) {
+  if (end <= start) return null
+  if (end - start <= MAX_DIRECT_LIFECYCLE_BYTES) {
+    const buf = Buffer.allocUnsafe(end - start)
+    const { bytesRead } = await fh.read(buf, 0, buf.length, start)
+    return bytesRead === buf.length ? lifecycleJson(buf.toString('utf8').trim()) : null
+  }
+  const skeleton = new JsonSkeleton()
+  const decoder = new StringDecoder('utf8')
+  let offset = start
+  while (offset < end && !skeleton.invalid) {
+    const want = Math.min(READ_BYTES, end - offset)
+    const buf = Buffer.allocUnsafe(want)
+    const { bytesRead } = await fh.read(buf, 0, want, offset)
+    if (!bytesRead) return null
+    skeleton.push(decoder.write(buf.subarray(0, bytesRead)))
+    offset += bytesRead
+  }
+  skeleton.push(decoder.end())
+  const json = skeleton.finish()
+  return json ? lifecycleJson(json) : null
+}
+
+/**
+ * Find the newest lifecycle record by walking backwards over complete lines.
+ *
+ * Newline positions, rather than line contents, are retained during the reverse walk. Candidate
+ * ranges are then fed through the bounded skeleton parser. A trailing partial record is skipped,
+ * and its starting offset is returned so an incremental poll can retry it once it is complete.
+ */
+async function latestLifecycle(file, size) {
+  if (!size) return { lifecycle: null, appendOffset: 0 }
+  const fh = await fsp.open(file, 'r')
+  let end = size
+  let rightBoundary = null
+  let appendOffset = 0
+  try {
+    while (end > 0) {
+      const start = Math.max(0, end - READ_BYTES)
+      const buf = Buffer.allocUnsafe(end - start)
+      const { bytesRead } = await fh.read(buf, 0, buf.length, start)
+      let cursor = bytesRead
+      while (cursor > 0) {
+        const found = buf.lastIndexOf(10, cursor - 1)
+        if (found < 0) break
+        cursor = found
+        const newline = start + cursor
+        if (rightBoundary === null) {
+          rightBoundary = newline
+          appendOffset = newline === size - 1 ? size : newline + 1
+          continue
+        }
+        const lifecycle = await lifecycleRange(fh, newline + 1, rightBoundary)
+        if (lifecycle) return { lifecycle, appendOffset }
+        rightBoundary = newline
+      }
+      end = start
+    }
+    if (rightBoundary !== null) {
+      const lifecycle = await lifecycleRange(fh, 0, rightBoundary)
+      if (lifecycle) return { lifecycle, appendOffset }
+    }
+    return { lifecycle: null, appendOffset }
+  } finally {
+    await fh.close()
+  }
+}
+
+/** Inspect complete records appended since the previous scan, retrying its trailing partial line. */
+async function appendedLifecycle(file, start, size) {
+  if (size <= start) return { lifecycle: null, appendOffset: start }
+  const fh = await fsp.open(file, 'r')
+  let offset = start
+  let lineStart = start
+  let last = null
+  try {
+    while (offset < size) {
+      const want = Math.min(READ_BYTES, size - offset)
+      const buf = Buffer.allocUnsafe(want)
+      const { bytesRead } = await fh.read(buf, 0, want, offset)
+      if (!bytesRead) break
+      let cursor = -1
+      while ((cursor = buf.indexOf(10, cursor + 1)) >= 0) {
+        const newline = offset + cursor
+        last = (await lifecycleRange(fh, lineStart, newline)) || last
+        lineStart = newline + 1
+      }
+      offset += bytesRead
+    }
+    return { lifecycle: last, appendOffset: lineStart }
+  } finally {
+    await fh.close()
+  }
 }
 
 /** Parsing is kept against mtime and size, so an unchanged transcript is read once. */
@@ -237,14 +451,34 @@ async function transcriptFacts(entry, needHead) {
   if (cached && cached.mtime === entry.mtime && cached.size === entry.size && (cached.head || !needHead)) {
     return cached.facts
   }
-  const facts = { lifecycle: null, meta: null }
+  const canAppend = cached && cached.file === entry.file && entry.size > cached.size
+  const facts = {
+    lifecycle: canAppend ? cached.facts.lifecycle : null,
+    meta: cached?.facts.meta || null,
+  }
+  let appendOffset = canAppend ? cached.appendOffset : 0
   try {
-    facts.lifecycle = readLifecycle(jsonLines(await readTail(entry.file, TAIL_BYTES)))
-    if (needHead) facts.meta = readHeadMeta(jsonLines(await readHead(entry.file, HEAD_BYTES)))
+    if (canAppend) {
+      const appended = await appendedLifecycle(entry.file, cached.appendOffset, entry.size)
+      facts.lifecycle = appended.lifecycle || facts.lifecycle
+      appendOffset = appended.appendOffset
+    } else {
+      const latest = await latestLifecycle(entry.file, entry.size)
+      facts.lifecycle = latest.lifecycle
+      appendOffset = latest.appendOffset
+    }
+    if (needHead && !facts.meta) facts.meta = readHeadMeta(jsonLines(await readHead(entry.file, HEAD_BYTES)))
   } catch {
     /* mid-write, or gone */
   }
-  parseCache.set(entry.id, { mtime: entry.mtime, size: entry.size, head: needHead, facts })
+  parseCache.set(entry.id, {
+    file: entry.file,
+    mtime: entry.mtime,
+    size: entry.size,
+    head: needHead || cached?.head,
+    appendOffset,
+    facts,
+  })
   return facts
 }
 
@@ -253,8 +487,60 @@ function projectOf(cwd) {
   return { projectPath: dir, project: dir ? path.basename(dir) : 'unknown' }
 }
 
+function parentFromSource(source) {
+  if (typeof source !== 'string' || !source.startsWith('{')) return ''
+  try {
+    return JSON.parse(source)?.subagent?.thread_spawn?.parent_thread_id || ''
+  } catch {
+    return ''
+  }
+}
+
+/** Break one deterministic edge per cycle and mark parents that have not reached either store. */
+function normaliseGraph(threads) {
+  const byId = new Map(threads.map((thread) => [thread.id, thread]))
+  for (const thread of threads) {
+    if (thread.parentId && !byId.has(thread.parentId)) thread.orphaned = true
+  }
+
+  for (const start of [...threads].sort((a, b) => a.id.localeCompare(b.id))) {
+    const path = []
+    const at = new Map()
+    let thread = start
+    while (thread?.parentId && byId.has(thread.parentId)) {
+      if (at.has(thread.id)) {
+        const cycle = path.slice(at.get(thread.id)).sort((a, b) => a.id.localeCompare(b.id))
+        const root = cycle[0]
+        root.parentId = null
+        root.orphaned = true
+        root.relationshipError = 'cycle'
+        break
+      }
+      at.set(thread.id, path.length)
+      path.push(thread)
+      thread = byId.get(thread.parentId)
+    }
+  }
+  return threads
+}
+
+function activityOf(lifecycle, lastActivityAt, now) {
+  if (lifecycle?.type === 'task_complete' || lifecycle?.type === 'turn_aborted') {
+    return { activity: 'quiet', running: false }
+  }
+  if (lifecycle?.type === 'task_started' && now - lastActivityAt < ACTIVE_WINDOW_MS) {
+    return { activity: 'running', running: true }
+  }
+  return { activity: 'unknown', running: null }
+}
+
 async function scanThreads() {
-  const [rows, rollouts, index] = await Promise.all([databaseRows(), scanRollouts(), readIndex()])
+  const [rows, rollouts, index, cli] = await Promise.all([
+    databaseRows(),
+    scanRollouts(),
+    readIndex(),
+    cliBinary(),
+  ])
   const ids = new Set([...rows.keys(), ...rollouts.keys()])
   const now = Date.now()
   const out = []
@@ -269,8 +555,18 @@ async function scanThreads() {
     const cwd = row?.cwd || meta.cwd || ''
     const { projectPath, project } = projectOf(cwd)
     const prompt = clean(row?.preview || row?.first_user_message || meta.prompt || '')
-    const title = clean(row?.title) || clean(index.get(id)?.thread_name) || prompt || 'Untitled thread'
     const lastActivityAt = Math.max(num(row?.updated_at_ms), entry?.mtime || 0)
+    const parent = row?.parent_thread_id || parentFromSource(row?.source) || meta.parentId || ''
+    const agentNickname = clean(row?.agent_nickname || meta.agentNickname || '').slice(0, 120)
+    const agentRole = clean(row?.agent_role || meta.agentRole || '').slice(0, 120)
+    const workerLabel = [agentNickname, agentRole]
+      .filter((value, index, values) => value && !values.slice(0, index).some((prior) => prior.toLowerCase() === value.toLowerCase()))
+      .join(' · ')
+    const isWorker = UUID.test(parent) || row?.thread_source === 'subagent' || meta.threadSource === 'subagent'
+    const title =
+      clean(row?.title) || clean(index.get(id)?.thread_name) || prompt || (isWorker && workerLabel) || 'Untitled thread'
+    const activity = activityOf(facts.lifecycle, lastActivityAt, now)
+    const cliAvailable = Boolean(cli)
 
     out.push({
       id: ID(id),
@@ -287,10 +583,13 @@ async function scanThreads() {
       effort: row?.reasoning_effort || meta.effort || '',
       createdAt: num(row?.created_at_ms) || meta.createdAt || entry?.mtime || 0,
       lastActivityAt,
+      parentId: UUID.test(parent) ? ID(parent) : null,
+      orphaned: false,
       // Codex records no focus history, so "have you looked at this" is unknowable — not false.
       lastFocusedAt: 0,
-      unread: false,
-      running: facts.lifecycle?.type === 'task_started' && now - lastActivityAt < ACTIVE_WINDOW_MS,
+      unread: null,
+      activity: activity.activity,
+      running: activity.running,
       hasError: facts.lifecycle?.type === 'task_complete' && facts.lifecycle.error,
       starred: false,
       routine: '',
@@ -300,11 +599,31 @@ async function scanThreads() {
       // and a token count would make Codex buildings taller than Claude ones for the same work.
       sizeBytes: entry?.size || 0,
       source: row?.source === 'vscode' ? 'vscode' : 'cli',
-      canOpen: true,
+      threadSource: row?.thread_source || meta.threadSource || '',
+      agentNickname,
+      agentRole,
+      canOpen: cliAvailable,
+      canOpenReason: cliAvailable
+        ? 'Installed Codex CLI can resume the exact session UUID in its recorded cwd'
+        : 'No verified opener is available: Codex CLI was not found and desktop UUID targeting is unverified',
+      openCapabilities: {
+        app: {
+          available: false,
+          verified: false,
+          reason: 'Codex desktop UUID deep-link targeting is not verified',
+        },
+        terminal: {
+          available: cliAvailable,
+          verified: cliAvailable,
+          reason: cliAvailable
+            ? 'Codex CLI help verifies resume accepts an exact session UUID; terminal launch was not exercised end to end'
+            : 'Codex CLI was not found',
+        },
+      },
       ref: { sessionId: id, cwd },
     })
   }
-  return out
+  return normaliseGraph(out)
 }
 
 /**
@@ -319,7 +638,10 @@ const CLI_DIRS = [
   '/usr/local/bin',
   '/usr/bin',
 ]
-const cliBinary = () => process.env.BOT_CROSSING_CODEX_CLI !== undefined ? process.env.BOT_CROSSING_CODEX_CLI || null : findExecutable('codex', CLI_DIRS)
+const cliBinary = () =>
+  Object.hasOwn(process.env, 'BOT_CROSSING_CODEX_CLI')
+    ? findExecutable(process.env.BOT_CROSSING_CODEX_CLI)
+    : findExecutable('codex', CLI_DIRS)
 
 /**
  * `codex://threads/<id>` is registered by the Codex desktop app; the OS opener does the rest.
@@ -333,7 +655,12 @@ async function openThread(ref) {
   }
   const bin = await cliBinary()
   const command = bin ? { argv: [bin, 'resume', id], cwd: typeof cwd === 'string' ? cwd : '' } : undefined
-  return { ok: true, url: `codex://threads/${id}`, command }
+  return {
+    ok: true,
+    url: `codex://threads/${id}`,
+    command,
+    appUnavailableReason: 'Opening an exact Codex task UUID in the desktop app is not verified; use Resume in terminal',
+  }
 }
 
 async function newSession(dir) {
