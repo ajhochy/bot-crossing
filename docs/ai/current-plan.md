@@ -12,7 +12,7 @@ Work is on `codex/overview-and-thread-opening`, stacked above the original draft
 - [x] Enable installed Codex deep links with checked OS dispatch; preserve CLI fallback.
 - [x] Resolve Rhythm Electron sessionId handling under the user-approved narrow source-change exception; keep live API/engine untouched.
 - [x] Run all tests/build, verify rendered UI and native opening, and record evidence.
-- [ ] Update docs, publish a draft in the fork, record dashboard run and retrospective.
+- [x] Update docs, publish fork draft #4, record dashboard run (revision 4218) and run review.
 
 ## Intent and boundaries
 Show the logical project, repository, exact checkout, harness, parent task, and worker without requiring users to decode worktree folder names. Preserve the colony art and existing interactions. All discovery is read-only; only Bot Crossing storage contains preferences and identity caches. No cleanup/deletion actions, harness migrations, live service restarts, or upstream PRs.

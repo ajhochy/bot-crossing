@@ -2,7 +2,7 @@
 date: 2026-09-18
 repo: bot-crossing
 branch: codex/overview-and-thread-opening
-pr: null
+pr: https://github.com/ajhochy/bot-crossing/pull/4
 issues: []
 status: pass
 tags: [run, bot-crossing]
@@ -54,6 +54,9 @@ index: "[[bot-crossing]]"
   API and engine process IDs remained unchanged and both services displayed healthy.
 - Native screenshot `rhythm-opening-live.png` is in the same private visualization directory.
 - Existing archive state remains intact (6,960 entries at final check).
+- Fork draft #4 targets `codex/rhythm-session-graph`; draft status and base were verified.
+  GitHub reports no check runs, consistent with the absence of a configured workflow.
+- Dev Dashboard run recorded successfully at state revision 4218.
 
 ## Notes
 
@@ -72,3 +75,13 @@ new assets. Existing Electron security policy invalidates authentication on full
 so normal Google sign-in was required once. No auth policy was weakened, no tokens were injected,
 and no main/API/engine process was restarted. Ordinary later session links remain same-document
 navigation and preserved authentication. This installation step is now documented.
+
+## Run review
+
+Disjoint repository ownership kept the Bot adapter/UI work separate from the Rhythm receiver.
+Native selection evidence caught the stale loaded renderer that synthetic dispatch tests could
+not detect. The same-origin probe and installation instructions now cover both findings.
+The shared workflow wrapper's missing-script assumption and unavailable TodoWrite were recorded;
+the durable plan and direct native checks supplied the required evidence. Pattern mining found
+no recurring correctness failures. Related smoke interactions were consolidated into one
+postmortem, a documented timing deviation. No global workflow or skill changes were made.
