@@ -57,6 +57,8 @@ index: "[[bot-crossing]]"
 - Fork draft #4 targets `codex/rhythm-session-graph`; draft status and base were verified.
   GitHub reports no check runs, consistent with the absence of a configured workflow.
 - Dev Dashboard run recorded successfully at state revision 4218.
+- Companion [Rhythm draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538) published at `117c873d`. Its focused/native checks passed; its full repository gate failed in three unchanged areas (API trigger parity, fork interrupted-output finalization, and mobile edited-title visibility). Causes remain uninvestigated; the PR includes a follow-up record. No signed release qualification is claimed.
+- The separate packaged Colony/native UI-menu plan is filed as [Rhythm epic #1525](https://github.com/ajhochy/Rhythm/issues/1525), twelve issues and four milestones.
 
 ## Notes
 

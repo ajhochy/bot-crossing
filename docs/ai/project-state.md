@@ -6,13 +6,14 @@ Overview counts, selected task-card cleanup and exact Codex/Rhythm Electron open
 ## Active branch / PR
 `codex/overview-and-thread-opening`, based on `codex/rhythm-session-graph`; follow-up fork draft [#4](https://github.com/ajhochy/bot-crossing/pull/4). Prior fork draft stack remains [#1](https://github.com/ajhochy/bot-crossing/pull/1),
 [#2](https://github.com/ajhochy/bot-crossing/pull/2), [#3](https://github.com/ajhochy/bot-crossing/pull/3).
-The approved Rhythm receiver change is isolated on its own `codex/electron-session-opening` branch.
+The approved Rhythm receiver is [draft PR #1538](https://github.com/ajhochy/Rhythm/pull/1538) on its own `codex/electron-session-opening` branch.
 
 ## Completed locally
 Code, rendered UI and native opening are verified. Draft #4 is published without merging;
 the Dev Dashboard run was recorded at revision 4218. Bot Crossing is serving the current built
-UI and native-opening server on its existing loopback port. The separate Rhythm receiver's
-broader repository gate and companion draft publication are still running.
+UI and native-opening server on its existing loopback port. The separate Rhythm receiver draft is
+published. Its broad gate failed in three unchanged packages (API trigger parity, fork interrupted
+output and mobile edited-title visibility); causes remain uninvestigated and recorded in that PR.
 
 ## Risks / known issues
 Terminal resume remains unqualified end to end. The shipping Rhythm Flutter app has no external
@@ -34,3 +35,4 @@ checks were used directly. No GitHub Actions workflow exists.
 ## Review handoff
 The stacked fork drafts are ready for review; no merge has been performed.
 Detailed evidence: [run report](runs/2026-09-18-overview-opening.md).
+The packaged Colony integration and native UI/menu plan is tracked separately in [Rhythm epic #1525](https://github.com/ajhochy/Rhythm/issues/1525), with four milestones and twelve implementation issues.
