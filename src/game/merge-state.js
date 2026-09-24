@@ -117,7 +117,17 @@ export function mergeState(base, local, remote) {
   const b = base || {}
   const l = local || {}
   const r = remote || {}
+  // Opaque future fields use whole-value three-way resolution. An unchanged local
+  // value keeps remote changes; a changed local value (including deletion) wins
+  // whole. Do not guess how an unfamiliar nested schema should be combined.
+  const known = new Set(['version', 'updatedAt', 'baseUpdatedAt', 'archived', 'archivedAt',
+    'opened', 'plots', 'seen', 'hiddenProjects', 'viewedAt', 'projectOverrides',
+    'projectAliases', 'projectMigrations', 'sessionMigrations', 'settings'])
+  const opaque = Object.fromEntries([...new Set([...Object.keys(r), ...Object.keys(l)])]
+    .filter(key => !known.has(key) && !(Object.hasOwn(b, key) && !Object.hasOwn(l, key)))
+    .map(key => [key, Object.hasOwn(l, key) && (!Object.hasOwn(b, key) || !sameValue(b[key], l[key])) ? l[key] : r[key]]))
   return {
+    ...opaque,
     version: r.version ?? l.version ?? 2,
     archived: mergeSet(b.archived, l.archived, r.archived),
     archivedAt: mergeMap(b.archivedAt, l.archivedAt, r.archivedAt),
