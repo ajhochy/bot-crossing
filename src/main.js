@@ -17,6 +17,7 @@ import { shorelinePoints } from './world/planet.js'
 import { shipPosition } from './world/plots.js'
 import {
   fetchThreads,
+  fetchCheckout,
   fetchState,
   saveState,
   openThread,
@@ -184,7 +185,7 @@ const actions = {
     selectedCheckout = id
     filters.checkout = id
     syncProject()
-    if (id) fetch(`/api/checkout?id=${encodeURIComponent(id)}`).then(r => r.json()).then(result => {
+    if (id) fetchCheckout(id).then(result => {
       if (result.error) throw new Error(result.error)
       for (const p of projectInventory) p.checkouts = p.checkouts.map(c => c.id === id ? { ...c, ...result.checkout } : c)
       applyThreads(sourceThreads)

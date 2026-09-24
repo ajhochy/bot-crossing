@@ -31,6 +31,7 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
   const transfers = new Map()
   const downloads = new Map()
   let disposed = false
+  let pendingScans = 0
 
   function ensureActive() {
     if (disposed) reject('Embedded Colony service has been disposed')
@@ -43,9 +44,9 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
     for (const [id, value] of downloads) if (value.expires <= now) downloads.delete(id)
   }
 
-  function stateResponse(state) {
+  function stateResponse(state, maxResultBytes = FRAME_BYTES) {
     const data = Buffer.from(JSON.stringify(state))
-    if (data.length <= FRAME_BYTES) return state
+    if (data.length <= maxResultBytes) return state
     // New reads and successful writes revoke the prior snapshot, keeping memory bounded.
     downloads.clear()
     const transferId = randomUUID()
@@ -53,18 +54,19 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
     return { transferId, totalBytes: data.length, sha256: digest(data), updatedAt: state.updatedAt }
   }
 
-  async function save(input, baseUpdatedAt) {
+  async function save(input, baseUpdatedAt, maxResultBytes) {
     const result = await store.save(input, baseUpdatedAt)
     ensureActive()
     if (result.conflict) reject('Colony state conflict: reload before saving')
-    return stateResponse(result.state)
+    return stateResponse(result.state, maxResultBytes)
   }
 
   return {
     dispose() { disposed = true; generations.clear(); transfers.clear(); downloads.clear() },
-    async invoke(method, payload = {}) {
+    async invoke(method, payload = {}, { maxResultBytes = FRAME_BYTES } = {}) {
       ensureActive()
       if (!object(payload)) reject('Invalid Colony request')
+      if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes < 1024 || maxResultBytes > FRAME_BYTES) reject('Invalid Colony response budget')
       cleanup()
       if (method !== 'state.chunk' && bytesOf({ method, payload }) > CONTROL_BYTES) {
         reject('Colony control request exceeds 64 KiB limit')
@@ -72,7 +74,7 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
       if (method === 'state.read') {
         const state = await store.read()
         ensureActive()
-        return stateResponse(state)
+        return stateResponse(state, maxResultBytes)
       }
       if (method === 'state.readChunk') {
         const download = downloads.get(payload.transferId)
@@ -89,50 +91,73 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
         if (typeof payload.transferId !== 'string' || !downloads.delete(payload.transferId)) reject('Unknown state download')
         return { cancelled: true }
       }
-      if (method === 'state.write') return save(payload.state, payload.baseUpdatedAt)
+      if (method === 'state.write') return save(payload.state, payload.baseUpdatedAt, maxResultBytes)
       if (method === 'inventory.page') {
         const limit = payload.limit === undefined ? PAGE_SIZE : payload.limit
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > PAGE_SIZE) reject('Inventory page limit must be 1–250')
+        const collection = payload.collection ?? 'threads'
+        if (!['threads', 'projects', 'warnings'].includes(collection)) reject('Invalid inventory collection')
         let generation = payload.generation
         if (!generation) {
           if (payload.cursor !== undefined) reject('Inventory cursor requires a generation')
-          const records = await scan()
-          ensureActive()
-          if (!Array.isArray(records) || records.length > MAX_RECORDS) reject('Inventory record count exceeds limit')
-          let size = 0
-          for (const record of records) {
-            if (!object(record)) reject('Invalid inventory record')
-            const recordSize = bytesOf(record)
-            if (recordSize > FRAME_BYTES) reject('Inventory record exceeds 1 MiB page limit')
-            size += recordSize
-            if (size > MAX_INVENTORY_BYTES) reject('Inventory snapshot exceeds 32 MiB limit')
-          }
-          if (generations.size >= MAX_GENERATIONS) reject('Too many active inventory generations')
-          generation = randomUUID()
-          generations.set(generation, { records: structuredClone(records), expires: Date.now() + LIFETIME_MS })
+          if (generations.size + pendingScans >= MAX_GENERATIONS) reject('Too many active inventory generations')
+          pendingScans++
+          try {
+            const observed = await scan()
+            ensureActive()
+            const legacy = Array.isArray(observed)
+            const collections = legacy ? { threads: observed, projects: [], warnings: [] } : observed
+            if (!object(collections)) reject('Invalid inventory snapshot')
+            let count = 0
+            let size = 0
+            for (const collection of ['threads', 'projects', 'warnings']) {
+              const records = collections[collection]
+              if (!Array.isArray(records)) reject('Invalid inventory collection')
+              count += records.length
+              if (count > MAX_RECORDS) reject('Inventory record count exceeds limit')
+              for (const record of records) {
+                if (collection === 'warnings' ? typeof record !== 'string' : !object(record)) reject('Invalid inventory record')
+                const recordBytes = bytesOf(record)
+                if (recordBytes > FRAME_BYTES) reject('Inventory record exceeds 1 MiB page limit')
+                size += recordBytes
+                if (size > MAX_INVENTORY_BYTES) reject('Inventory snapshot exceeds 32 MiB limit')
+              }
+            }
+            const scannedAt = legacy ? Date.now() : collections.scannedAt
+            if (!Number.isSafeInteger(scannedAt) || scannedAt < 0) reject('Invalid scan timestamp')
+            const snapshot = { threads: collections.threads, projects: collections.projects, warnings: collections.warnings, scannedAt }
+            if (bytesOf(snapshot) > MAX_INVENTORY_BYTES) reject('Inventory snapshot exceeds 32 MiB limit')
+            if (generations.size >= MAX_GENERATIONS) reject('Too many active inventory generations')
+            generation = randomUUID()
+            // Match the standalone JSON DTO: absent optional adapter fields are
+            // omitted, rather than forwarding JavaScript undefined over IPC.
+            generations.set(generation, { ...JSON.parse(JSON.stringify(snapshot)), legacy, expires: Date.now() + LIFETIME_MS })
+          } finally { pendingScans-- }
         }
         ensureActive()
         const snapshot = generations.get(generation)
         if (!snapshot) reject('Unknown, cancelled or expired inventory generation')
+        const records = snapshot[collection]
+        const metadata = snapshot.legacy && payload.collection === undefined ? {} : { collection, scannedAt: snapshot.scannedAt }
         const start = payload.cursor === undefined ? 0 : Number(payload.cursor)
-        if (!Number.isSafeInteger(start) || start < 0 || start > snapshot.records.length || String(start) !== String(payload.cursor ?? 0)) {
+        if (!Number.isSafeInteger(start) || start < 0 || start > records.length || String(start) !== String(payload.cursor ?? 0)) {
           reject('Invalid inventory cursor')
         }
         let end = start
         let recordBytes = 0
-        while (end < snapshot.records.length && end - start < limit) {
+        while (end < records.length && end - start < limit) {
           const nextEnd = end + 1
-          const nextCursor = nextEnd < snapshot.records.length ? String(nextEnd) : null
-          const nextRecordBytes = recordBytes + bytesOf(snapshot.records[end])
-          const frameSize = bytesOf({ generation, records: [], nextCursor }) +
-            nextRecordBytes + (nextEnd - start - 1)
-          if (frameSize > FRAME_BYTES) break
+          const nextCursor = nextEnd < records.length ? String(nextEnd) : null
+          const nextRecordBytes = recordBytes + bytesOf(records[end])
+          const frameSize = bytesOf({ generation, ...metadata, records: [], nextCursor }) + nextRecordBytes + (nextEnd - start - 1)
+          if (frameSize > maxResultBytes) break
           recordBytes = nextRecordBytes
           end = nextEnd
         }
-        if (end === start && start < snapshot.records.length) reject('Inventory record exceeds 1 MiB page limit')
-        return { generation, records: snapshot.records.slice(start, end), nextCursor: end < snapshot.records.length ? String(end) : null }
+        if (end === start && start < records.length) reject('Inventory record exceeds 1 MiB page limit')
+        return { generation, ...metadata, records: records.slice(start, end), nextCursor: end < records.length ? String(end) : null }
       }
+
       if (method === 'inventory.cancel') {
         if (typeof payload.generation !== 'string' || !generations.delete(payload.generation)) reject('Unknown inventory generation')
         return { cancelled: true }
@@ -174,7 +199,7 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
         let state
         try { state = JSON.parse(data.toString('utf8')) }
         catch { reject('Malformed state transfer JSON') }
-        return save(state, transfer.baseUpdatedAt)
+        return save(state, transfer.baseUpdatedAt, maxResultBytes)
       }
       reject(`Unsupported embedded Colony method: ${String(method)}`)
     },

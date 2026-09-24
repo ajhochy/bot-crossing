@@ -1,0 +1,69 @@
+{
+  "issue": 1527,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1527-c1",
+      "text": "**COL-02-AC1:** Each refusal case above is covered by a direct unit test and produces a distinct actionable error with zero import, zero native action and zero state write. Corrupting one byte of one artifact file fails the load.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1527-c2",
+      "text": "**COL-02-AC2:** With `RHYTHM_COLONY_ARTIFACT_DIR` unset or pointing at a missing, dirty, wrong-commit or wrong-`electronMajor` artifact, the Colony tab reports why and stops; no alternative source is loaded and no partial UI is shown.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1527-c3",
+      "text": "**COL-02-AC3:** In real pinned Electron, artifact-served JS/GLB assets load and a synthetic scan plus state round-trip works through private child IPC; no Colony TCP listener is created and upstream standalone HTTP behavior still passes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1527-c4",
+      "text": "**COL-02-AC4:** A sibling/foreign frame, stale/reloaded document, unknown method, malformed/oversize message and unsupported protocol version each produce zero native actions and zero state writes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1527-c5",
+      "text": "**COL-02-AC5:** The scene cannot access Rhythm bearer tokens, parent DOM, arbitrary URLs, filesystem APIs or process APIs; leaving/disabling the feature revokes the previous channel.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1527-c6",
+      "text": "**COL-02-AC6:** A 15,000-record snapshot is paged with stable generation/cursors and cancellation; a large archive beyond 64 KiB round-trips unchanged, while an interrupted state transfer commits nothing.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    }
+  ],
+  "stack": "unknown",
+  "not_tested": [
+    "issue-1527-c1",
+    "issue-1527-c2",
+    "issue-1527-c3",
+    "issue-1527-c4",
+    "issue-1527-c5",
+    "issue-1527-c6"
+  ],
+  "scope": "Planning-only supporting evidence, not replacement for issue-wide contract. Node built-in JavaScript tests; canonical schema lacks JavaScript enum.",
+  "supplemental_tests": {
+    "files": [
+      "test/embedded-renderer-transport.test.mjs",
+      "test/embedded-protocol-contract.test.mjs",
+      "test/embedded-inventory-collections.test.mjs"
+    ],
+    "command": "node --test test/embedded-renderer-transport.test.mjs test/embedded-protocol-contract.test.mjs",
+    "status": "Source transport slice implemented; final full-suite result recorded in run report. Native issue criteria remain UNVERIFIED.",
+    "log": "/private/tmp/colony-channel-slice1-full-test-final.log",
+    "limits": "Transport fixtures and actual scene client/service behavior only; no actual Electron frame or packaged worker proof."
+  }
+}

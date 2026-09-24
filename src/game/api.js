@@ -1,4 +1,11 @@
 import { mergeState } from './merge-state.js'
+import { createEmbeddedTransport } from './embedded-api.js'
+
+// Bridge presence selects embedded mode even if invalid; never fall back to HTTP.
+const embeddedMode = Object.hasOwn(globalThis, 'colonyEmbedded')
+const bridge = globalThis.colonyEmbedded
+let transport
+const embedded = () => transport ||= createEmbeddedTransport(bridge)
 
 async function req(url, options) {
   const res = await fetch(url, options)
@@ -7,14 +14,17 @@ async function req(url, options) {
   return body
 }
 
-const post = (url, payload) =>
-  req(url, {
+const post = async (url, payload) => {
+  if (embeddedMode) throw new Error('This action is unavailable in embedded Colony')
+  return req(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+}
 
-export const fetchThreads = () => req('/api/threads')
+export const fetchThreads = async () => embeddedMode ? embedded().fetchThreads() : req('/api/threads')
+export const fetchCheckout = async id => embeddedMode ? embedded().fetchCheckout(id) : req(`/api/checkout?id=${encodeURIComponent(id)}`)
 
 /**
  * The colony file, and the base every later save is measured against.
@@ -35,9 +45,27 @@ function adoptBase(state, updatedAt) {
 }
 
 export const fetchState = async () => {
-  const state = await req('/api/state')
+  const state = await readState()
   adoptBase(state)
   return state
+}
+
+const readState = () => embeddedMode ? embedded().readState() : req('/api/state')
+
+async function writeState(state, baseUpdatedAt) {
+  if (embeddedMode) {
+    try { return { ok: true, body: await embedded().writeState(state, baseUpdatedAt) } }
+    catch (error) {
+      if (error.code === 'state_conflict') return { conflict: true, body: await embedded().readState() }
+      throw error
+    }
+  }
+  const response = await fetch('/api/state', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...state, baseUpdatedAt }),
+  })
+  const body = await response.json().catch(() => ({}))
+  return { ok: response.ok, conflict: response.status === 409, body, error: body.error || `${response.status} ${response.statusText}` }
 }
 
 /** Enough attempts to get through a burst of saves from another tab, and no more. */
@@ -76,19 +104,15 @@ export async function saveState(state) {
 
   let local = state
   for (let attempt = 0; attempt < SAVE_TRIES; attempt++) {
-    const res = await fetch('/api/state', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...local, baseUpdatedAt }),
-    })
-    const body = await res.json().catch(() => ({}))
+    const res = await writeState(local, baseUpdatedAt)
+    const body = res.body
 
-    if (res.status === 409) {
+    if (res.conflict) {
       local = mergeState(baseSnapshot, local, body)
       adoptBase(body)
       continue
     }
-    if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
+    if (!res.ok) throw new Error(res.error)
     adoptBase(local, body.updatedAt)
     return local
   }
