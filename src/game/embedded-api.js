@@ -25,7 +25,14 @@ export function createEmbeddedTransport(bridge) {
   let projects = []
   const request = async (method, payload = {}) => {
     if (requestSize(method, payload) > (method === 'state.chunk' ? FRAME_BYTES : CONTROL_BYTES)) reject('Colony request exceeds its frame limit')
-    const result = await bridge.request(method, payload)
+    let result
+    try { result = await bridge.request(method, payload) }
+    catch (error) {
+      // contextBridge can recreate Error objects without their custom code property.
+      const match = /^\[colony:(invalid_request|unsupported_version|revoked|unsupported_method|oversize|busy|state_conflict|unavailable)\] ([\s\S]{0,1024})$/.exec(error?.message || '')
+      if (match) throw Object.assign(new Error(match[2]), { code: match[1] })
+      throw error
+    }
     // Native preload validates the exact envelope. This extra bound limits renderer allocations.
     if (!object(result) || byteSize(result) > FRAME_BYTES) reject('Invalid or oversized Colony response')
     return result

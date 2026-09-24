@@ -103,6 +103,7 @@ async function main() {
       renderer: 'renderer/index.html',
       host: 'server/embedded-host.mjs',
       preload: 'server/embedded-preload.cjs',
+      worker: 'server/embedded-worker.mjs',
     }
     for (const entry of Object.values(files)) await fs.access(path.join(stage, entry))
     const allFiles = await walkFiles(stage)

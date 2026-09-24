@@ -66,3 +66,19 @@ The packaged Colony integration and native UI/menu plan is tracked separately in
 - Decisions made: explicit HTTP compatibility mode; embedded strict validation and liveness retained; unknown fields use whole-value three-way conflict resolution with changed local value winning.
 - Deviations from spec: no native receiver work in this bounded extraction. GitNexus impact unavailable because Bot Crossing is not indexed.
 - Concerns: private child IPC and embedded scene adapter remain unverified; shared queue is process-local, not an OS-level cross-process CAS.
+
+### 2026-09-24 — COL-02 private protocol and renderer transport
+- Files modified: versioned document protocol, service inventory collections/budgets, actual scene state/inventory adapter and cached checkout seam. Details: [source transport report](runs/2026-09-24-colony-private-transport.md).
+- Checks run: initial 9 RED, expanded 13 RED; final npm test 234/234 including standalone and builder fixtures; final production build, syntax and whitespace checks pass.
+- Decisions made: explicit bridge presence never falls back to HTTP; exact envelope budgets; renderer retains shared merge/read-before-save logic; unsupported action exports refuse locally.
+- Deviations from spec: native worker/channel/frame and rendered acceptance deliberately remain separate; DOM action visibility unchanged. GitNexus index unavailable.
+- Concerns: no issue-wide or packaged-runtime PASS; worker/source filtering, native preload/receiver and complete tab smoke still pending.
+
+### 2026-09-24 — COL-02 owned worker and preload source slice
+- Files modified: explicit-source scanner, private worker, document request preload, shared identity helpers, inert adapter capability mode and sealed worker declaration. Details: [worker/preload report](runs/2026-09-24-colony-worker-preload.md).
+- Checks run: 18 RED before implementation; focused 20/20; full npm test 256/256 and production build pass. Actual synthetic Node child IPC/store scans guarded against subprocesses/sockets; no real stores used.
+- Decisions made: immutable worker source paths; lazy enabled adapters only; no Git/native capability probes; exactly one preload port per document lifetime, irrevocable after close.
+- Deviations from spec: no native receiver/tab work in this upstream slice; GitNexus index unavailable.
+- Concerns: actual Electron frame authorization, pinned/packaged worker supervision, rendered tab and complete native smoke remain unverified; no issue-wide PASS.
+
+- Worker slice review repair: initial scene calls await the bounded private handshake; fixed capabilities and ready event; missing-source stale warnings; exact coded errors survive custom Error property loss. Final focused 45/45 passes after the earlier full 256/build receipt. Native receiver/tab remains next.

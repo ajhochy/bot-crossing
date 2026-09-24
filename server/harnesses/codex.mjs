@@ -535,13 +535,13 @@ function activityOf(lifecycle, lastActivityAt, now) {
   return { activity: 'unknown', running: null }
 }
 
-async function scanThreads() {
-  const desktop = await codexDesktop()
+async function scanThreads({ nativeCapabilities = true } = {}) {
+  const desktop = nativeCapabilities ? await codexDesktop() : { available: false }
   const [rows, rollouts, index, cli] = await Promise.all([
     databaseRows(),
     scanRollouts(),
     readIndex(),
-    cliBinary(),
+    nativeCapabilities ? cliBinary() : '',
   ])
   const ids = new Set([...rows.keys(), ...rollouts.keys()])
   const now = Date.now()
