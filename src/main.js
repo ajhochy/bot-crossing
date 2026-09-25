@@ -23,7 +23,10 @@ import {
   openThread,
   newSession,
   revealFolder,
+  embeddedBridge,
+  isEmbedded,
 } from './game/api.js'
+import { applyEmbeddedQuality, createEmbeddedHostController, createEmbeddedVisibilityScheduler, filterEmbeddedThreads } from './game/embedded-api.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
 import { groupProjects, migrateProjectState, migrateSessionState, filterSessions, projectCategory, projectOverview } from './game/projects.js'
@@ -40,6 +43,7 @@ import { mergeState } from './game/merge-state.js'
 
 const POLL_MS = 15000
 const app = document.getElementById('app')
+if (isEmbedded) document.documentElement.classList.add('colony-embedded')
 
 app.insertAdjacentHTML(
   'beforeend',
@@ -81,6 +85,10 @@ let selectedProject = null
 let hoverId = null
 let statusCursor = 0
 let pendingSave = 0
+let hostHidden = false
+let embeddedHost = null
+let visibilityScheduler = null
+let embeddedFilters = null
 const hoverGround = new THREE.Vector3()
 
 // ── actions the HUD can trigger ────────────────────────────────────────────────────────
@@ -417,6 +425,7 @@ function select(id, { fly = false } = {}) {
     rig.focus(new THREE.Vector3(agent.pos.x, 0, agent.pos.z), { distance: Math.min(rig.desiredDistance, 26) })
   }
   rig.setFollow(settings.get('followSelected') ? agent : null)
+  if (isEmbedded && !fly) void embeddedHost?.sceneSelected(id).catch(() => {})
 }
 
 /** Open a zone's sidebar. Any selected astronaut from a different zone lets go. */
@@ -898,6 +907,7 @@ window.addEventListener('keydown', (e) => {
       hud.setOrbit(false)
       break
     case 'Enter':
+      if (isEmbedded) break
       if (selectedId) actions.openThread()
       break
     case 'a':
@@ -910,6 +920,7 @@ window.addEventListener('keydown', (e) => {
       break
     case 'c':
     case 'C':
+      if (isEmbedded) break
       if (selectedProject) actions.newConversation()
       break
     case '?':
@@ -968,7 +979,8 @@ function applyThreads(list) {
     return
   }
   if (list !== threads) sourceThreads = list
-  const grouped = groupProjects(withErrands(sourceThreads), projectInventory, state.projectOverrides, state.projectAliases)
+  const embeddedInput = embeddedFilters ? filterEmbeddedThreads(sourceThreads, embeddedFilters, statusFor) : sourceThreads
+  const grouped = groupProjects(withErrands(embeddedInput), projectInventory, state.projectOverrides, state.projectAliases)
   list = grouped.threads
   const byId = new Map(list.map(t => [t.id, t]))
   list = list.map(t => t.parentId ? { ...t, parentTitle: byId.get(t.parentId)?.title, parentArchived: byId.get(t.parentId)?.archived } : t)
@@ -1080,7 +1092,7 @@ function chimeForNewWaiting(list, archivedSet, hiddenSet) {
 
 let polling = false
 async function poll() {
-  if (polling) return
+  if (polling || document.hidden || hostHidden) return
   polling = true
   try {
     const res = await fetchThreads()
@@ -1151,11 +1163,12 @@ async function boot() {
   if (!kitError) colony.onAssetsReady()
 
   await poll()
-  setInterval(poll, POLL_MS)
-  window.addEventListener('focus', poll)
+  visibilityScheduler = createEmbeddedVisibilityScheduler({ poll, isDocumentHidden: () => document.hidden, period: POLL_MS })
+  visibilityScheduler.setHostHidden(hostHidden)
+  window.addEventListener('focus', () => { if (!hostHidden) poll() })
   // A tab that was hidden for an hour should catch up the moment it comes back.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) poll()
+    visibilityScheduler.documentVisibilityChanged()
   })
 
   if (!localStorage.getItem('botcrossing.seen-help')) {
@@ -1164,6 +1177,33 @@ async function boot() {
   } else {
     hud.hint('Drag to move · click a bot · H hides everything', 5200)
   }
+}
+
+if (isEmbedded) {
+  embeddedHost = createEmbeddedHostController(embeddedBridge, {
+    select: (threadId, options) => select(threadId, options),
+    filter: payload => {
+      embeddedFilters = payload
+      filters = { ...filters, query: '', harness: '', status: '', includeHistorical: payload.includeHistorical ?? filters.includeHistorical }
+      applyThreads(sourceThreads)
+    },
+    view: payload => {
+      if (payload.quality) applyEmbeddedQuality(settings, payload.quality)
+      if (payload.sound !== undefined) settings.set('sound', payload.sound)
+      if (payload.motion) settings.set('reducedMotion', payload.motion === 'reduced')
+      if (payload.resetCamera) actions.resetView()
+      if (payload.focusSelection && selectedId) select(selectedId, { fly: true })
+    },
+    visibility: ({ hidden }) => {
+      const wasHidden = hostHidden
+      hostHidden = hidden
+      visibilityScheduler?.setHostHidden(hidden)
+      engine.setHostHidden(hidden)
+      ambience.setHostHidden(hidden)
+      if (wasHidden && !hidden) void poll()
+    },
+  })
+  engine.canvas.addEventListener('webglcontextlost', () => { void embeddedHost.webglLost().catch(() => {}) })
 }
 
 // ── settings plumbing ─────────────────────────────────────────────────────────────────

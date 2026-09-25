@@ -8,6 +8,7 @@ const fail = (code, message) => { throw Object.assign(new Error(message), { code
 const schemas = {
   'state.read': [[], []],
   'state.write': [['state', 'baseUpdatedAt'], []],
+  'state.mark': [['threadId'], ['archived', 'viewedAt']],
   'state.begin': [['baseUpdatedAt', 'totalBytes', 'sha256'], []],
   'state.chunk': [['transferId', 'index', 'data'], []],
   'state.commit': [['transferId'], []],
@@ -16,6 +17,8 @@ const schemas = {
   'state.readCancel': [['transferId'], []],
   'inventory.page': [[], ['generation', 'cursor', 'collection', 'limit']],
   'inventory.cancel': [['generation'], []],
+  'scene.select': [['threadId'], []],
+  'scene.status': [['webgl'], []],
 }
 
 function jsonOnly(value) {
@@ -58,6 +61,11 @@ function validate(message, documentId) {
   if (Object.hasOwn(payload, 'limit') && (!integer(payload.limit) || payload.limit < 1 || payload.limit > 250)) fail('invalid_request', 'Invalid inventory page limit')
   if (Object.hasOwn(payload, 'cursor') && (typeof payload.cursor !== 'string' || !/^(0|[1-9][0-9]{0,8})$/.test(payload.cursor))) fail('invalid_request', 'Invalid inventory cursor')
   if (Object.hasOwn(payload, 'collection') && !['threads', 'projects', 'warnings'].includes(payload.collection)) fail('invalid_request', 'Invalid inventory collection')
+  if (Object.hasOwn(payload, 'threadId') && (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId))) fail('invalid_request', 'Invalid thread identity')
+  if (Object.hasOwn(payload, 'webgl') && !['ready', 'lost'].includes(payload.webgl)) fail('invalid_request', 'Invalid WebGL status')
+  if (message.method === 'state.mark' && !Object.hasOwn(payload, 'archived') && !Object.hasOwn(payload, 'viewedAt')) fail('invalid_request', 'State mark requires a change')
+  if (Object.hasOwn(payload, 'archived') && typeof payload.archived !== 'boolean') fail('invalid_request', 'Invalid archive mark')
+  if (Object.hasOwn(payload, 'viewedAt') && !integer(payload.viewedAt)) fail('invalid_request', 'Invalid viewed timestamp')
 }
 
 function serviceError(error) {
@@ -88,6 +96,7 @@ export function createProtocolSession({ service, documentId }) {
         requestId = message.id
         if (pending.has(requestId)) fail('invalid_request', 'Duplicate outstanding Colony request')
         if (pending.size >= 32) fail('busy', 'Colony request limit reached')
+        if (message.method.startsWith('scene.')) fail('unsupported_method', 'Host must intercept scene intent')
         let revoke
         const revoked = new Promise(resolve => { revoke = resolve })
         pending.set(requestId, revoke)

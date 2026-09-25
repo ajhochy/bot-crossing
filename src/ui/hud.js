@@ -69,7 +69,9 @@ export class Hud {
     this.el = document.createElement('div')
     this.el.className = 'hud'
     this.el.innerHTML = TEMPLATE
-    root.appendChild(this.el)
+    // Rhythm owns every surrounding control; keep the standalone HUD operational but detached
+    // so its state methods can still be reused without painting duplicate chrome.
+    if (!Object.hasOwn(globalThis, 'colonyEmbedded')) root.appendChild(this.el)
 
     this.$ = (sel) => this.el.querySelector(sel)
 

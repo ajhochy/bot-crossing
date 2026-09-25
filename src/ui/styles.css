@@ -1654,3 +1654,6 @@ kbd {
 
 [hidden] { display: none !important; }
 .scan-notice { margin: 0; padding: 8px 14px; font-size: 11px; line-height: 1.5; max-height: 75px; overflow: auto; color: #ffd8bb; }
+html.colony-embedded .hud {
+  display: none !important;
+}

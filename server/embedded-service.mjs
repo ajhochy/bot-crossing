@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { createStateStore } from './state-store.mjs'
+import { createStateStore, readImportState } from './state-store.mjs'
 import { MAX_STATE_BYTES } from './state-model.mjs'
 
 const CONTROL_BYTES = 64 * 1024
@@ -20,7 +20,7 @@ const bytesOf = value => Buffer.byteLength(JSON.stringify(value))
 const reject = message => { throw new Error(message) }
 
 /** The embedded instance owns every snapshot and transfer. Import and construction do no I/O. */
-export function createEmbeddedService({ dataDir, scan } = {}) {
+export function createEmbeddedService({ dataDir, scan, importBeforeRename = () => {} } = {}) {
   if (typeof dataDir !== 'string' || !path.isAbsolute(dataDir) ||
     path.resolve(dataDir) === artifactRoot || path.resolve(dataDir).startsWith(artifactRoot + path.sep) ||
     typeof scan !== 'function') {
@@ -28,10 +28,11 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
   }
   const store = createStateStore({ dataDir, ensureActive })
   const generations = new Map()
+  const pendingGenerations = new Map()
   const transfers = new Map()
   const downloads = new Map()
   let disposed = false
-  let pendingScans = 0
+  let cachedGeneration = null
 
   function ensureActive() {
     if (disposed) reject('Embedded Colony service has been disposed')
@@ -61,8 +62,46 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
     return stateResponse(result.state, maxResultBytes)
   }
 
+  const importPreview = async file => {
+    ensureActive()
+    const state = await readImportState(file)
+    ensureActive()
+    return { archived: state.archived.length, viewed: Object.keys(state.viewedAt).length,
+      groups: Object.keys(state.projectOverrides).length, version: state.version }
+  }
+  const importCommit = async file => {
+    ensureActive()
+    const imported = await readImportState(file)
+    const current = await store.read()
+    ensureActive()
+    const newest = (left = {}, right = {}) => {
+      const result = { ...left }
+      for (const [key, value] of Object.entries(right)) if (!Number.isFinite(result[key]) || value > result[key]) result[key] = value
+      return result
+    }
+    const merged = {
+      ...imported,
+      ...current,
+      archived: [...new Set([...current.archived, ...imported.archived])],
+      archivedAt: newest(current.archivedAt, imported.archivedAt),
+      opened: [...new Set([...current.opened, ...imported.opened])],
+      hiddenProjects: [...new Set([...current.hiddenProjects, ...imported.hiddenProjects])],
+      viewedAt: newest(current.viewedAt, imported.viewedAt),
+      projectOverrides: { ...imported.projectOverrides, ...current.projectOverrides },
+      projectAliases: { ...imported.projectAliases, ...current.projectAliases },
+      projectMigrations: { ...imported.projectMigrations, ...current.projectMigrations },
+      sessionMigrations: { ...imported.sessionMigrations, ...current.sessionMigrations },
+      plots: { ...imported.plots, ...current.plots },
+      seen: newest(imported.seen, current.seen),
+      settings: current.settings ?? imported.settings,
+    }
+    return store.replace(merged, importBeforeRename)
+  }
   return {
-    dispose() { disposed = true; generations.clear(); transfers.clear(); downloads.clear() },
+    dispose() { disposed = true; generations.clear(); pendingGenerations.clear(); transfers.clear(); downloads.clear() },
+    importPreview,
+    importCommit,
+    backupRestore: name => store.restoreBackup(name, importBeforeRename),
     async invoke(method, payload = {}, { maxResultBytes = FRAME_BYTES } = {}) {
       ensureActive()
       if (!object(payload)) reject('Invalid Colony request')
@@ -92,18 +131,34 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
         return { cancelled: true }
       }
       if (method === 'state.write') return save(payload.state, payload.baseUpdatedAt, maxResultBytes)
+      if (method === 'state.mark') {
+        if (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId) ||
+          (!Object.hasOwn(payload, 'archived') && !Object.hasOwn(payload, 'viewedAt')) ||
+          (Object.hasOwn(payload, 'archived') && typeof payload.archived !== 'boolean') ||
+          (Object.hasOwn(payload, 'viewedAt') && (!Number.isSafeInteger(payload.viewedAt) || payload.viewedAt < 0)) ||
+          Object.keys(payload).some(key => !['threadId', 'archived', 'viewedAt'].includes(key))) reject('Invalid state mark request')
+        return stateResponse(await store.mark(payload.threadId, payload), maxResultBytes)
+      }
       if (method === 'inventory.page') {
         const limit = payload.limit === undefined ? PAGE_SIZE : payload.limit
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > PAGE_SIZE) reject('Inventory page limit must be 1–250')
         const collection = payload.collection ?? 'threads'
         if (!['threads', 'projects', 'warnings'].includes(collection)) reject('Invalid inventory collection')
         let generation = payload.generation
+        if (!generation && cachedGeneration && generations.has(cachedGeneration)) generation = cachedGeneration
         if (!generation) {
           if (payload.cursor !== undefined) reject('Inventory cursor requires a generation')
-          if (generations.size + pendingScans >= MAX_GENERATIONS) reject('Too many active inventory generations')
-          pendingScans++
-          try {
+          generation = randomUUID()
+        }
+        if (!generations.has(generation)) {
+          if (payload.cursor !== undefined) reject('Unknown, cancelled or expired inventory generation')
+          let pending = pendingGenerations.get(generation)
+          if (!pending) {
+            if (generations.size + pendingGenerations.size >= MAX_GENERATIONS) reject('Too many active inventory generations')
+            const token = { cancelled: false, promise: null }
+            token.promise = (async () => {
             const observed = await scan()
+            if (token.cancelled) reject('Cancelled inventory generation')
             ensureActive()
             const legacy = Array.isArray(observed)
             const collections = legacy ? { threads: observed, projects: [], warnings: [] } : observed
@@ -128,11 +183,16 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
             const snapshot = { threads: collections.threads, projects: collections.projects, warnings: collections.warnings, scannedAt }
             if (bytesOf(snapshot) > MAX_INVENTORY_BYTES) reject('Inventory snapshot exceeds 32 MiB limit')
             if (generations.size >= MAX_GENERATIONS) reject('Too many active inventory generations')
-            generation = randomUUID()
             // Match the standalone JSON DTO: absent optional adapter fields are
             // omitted, rather than forwarding JavaScript undefined over IPC.
             generations.set(generation, { ...JSON.parse(JSON.stringify(snapshot)), legacy, expires: Date.now() + LIFETIME_MS })
-          } finally { pendingScans-- }
+            cachedGeneration = generation
+            })().finally(() => { pendingGenerations.delete(generation) })
+            pendingGenerations.set(generation, token)
+            pending = token
+          }
+          await pending.promise
+          if (pending.cancelled) reject('Cancelled inventory generation')
         }
         ensureActive()
         const snapshot = generations.get(generation)
@@ -159,7 +219,12 @@ export function createEmbeddedService({ dataDir, scan } = {}) {
       }
 
       if (method === 'inventory.cancel') {
-        if (typeof payload.generation !== 'string' || !generations.delete(payload.generation)) reject('Unknown inventory generation')
+        const pending = pendingGenerations.get(payload.generation)
+        if (pending) {
+          pending.cancelled = true
+          pendingGenerations.delete(payload.generation)
+        } else if (typeof payload.generation !== 'string' || !generations.delete(payload.generation)) reject('Unknown inventory generation')
+        if (cachedGeneration === payload.generation) cachedGeneration = null
         return { cancelled: true }
       }
       if (method === 'state.begin') {

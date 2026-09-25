@@ -37,7 +37,7 @@ test('preload exposes only metadata and a closed private request wrapper', async
   const fixture = preload()
   assert.equal(typeof fixture.bridge?.request, 'function', 'preload request wrapper is absent')
   assert.equal(fixture.bridge.protocolVersion, 1)
-  assert.deepEqual(Object.keys(fixture.bridge).filter(key => !['product', 'protocolVersion', 'electronMajor', 'request'].includes(key)), [])
+  assert.deepEqual(Object.keys(fixture.bridge).filter(key => !['product', 'protocolVersion', 'electronMajor', 'request', 'onHostEvent'].includes(key)), [])
   fixture.attach()
   const pending = fixture.bridge.request('state.read', {})
   await new Promise(resolve => setImmediate(resolve))
@@ -46,6 +46,56 @@ test('preload exposes only metadata and a closed private request wrapper', async
   assert.equal(request.documentId, 'owned-document')
   fixture.port.onmessage({ data: { v: 1, documentId: request.documentId, id: request.id, ok: true, result: { version: 3, archived: [], updatedAt: 0 } } })
   assert.deepEqual((await pending).archived, [])
+  fixture.close()
+})
+
+test('host events are delivered once and malformed host envelopes revoke the document', async () => {
+  const fixture = preload()
+  assert.equal(typeof fixture.bridge?.onHostEvent, 'function')
+  fixture.attach()
+  const events = []
+  const unsubscribe = fixture.bridge.onHostEvent(event => events.push(structuredClone(event)))
+  fixture.port.onmessage({ data: { v: 1, documentId: 'owned-document', event: 'host.select', payload: { threadId: 'codex:thread-1' } } })
+  assert.deepEqual(events, [{ event: 'host.select', payload: { threadId: 'codex:thread-1' } }])
+  unsubscribe()
+  fixture.port.onmessage({ data: { v: 1, documentId: 'owned-document', event: 'host.select', payload: { threadId: 'codex:thread-2' } } })
+  assert.equal(events.length, 1)
+
+  const pending = fixture.bridge.request('state.read', {})
+  await new Promise(resolve => setImmediate(resolve))
+  fixture.port.onmessage({ data: { v: 1, documentId: 'owned-document', event: 'host.select', payload: { threadId: 'codex:thread-3' }, extra: true } })
+  await assert.rejects(pending, /invalid|revoked|document/i)
+  assert.equal(fixture.port.closed, true)
+})
+
+test('foreign and unknown host events revoke pending requests', async () => {
+  for (const message of [
+    { v: 1, documentId: 'foreign-document', event: 'host.visibility', payload: { hidden: true } },
+    { v: 1, documentId: 'owned-document', event: 'host.unknown', payload: {} },
+  ]) {
+    const fixture = preload()
+    fixture.attach()
+    const pending = fixture.bridge.request('state.read', {})
+    await new Promise(resolve => setImmediate(resolve))
+    fixture.port.onmessage({ data: message })
+    await assert.rejects(pending, /invalid|revoked|document/i)
+    assert.equal(fixture.port.closed, true)
+  }
+})
+
+test('scene.select accepts one bounded thread identity and rejects invalid shapes locally', async () => {
+  const fixture = preload()
+  fixture.attach()
+  const pending = fixture.bridge.request('scene.select', { threadId: 'rhythm:local-thread_1' })
+  await new Promise(resolve => setImmediate(resolve))
+  const request = fixture.sent.find(message => message.method === 'scene.select')
+  assert.equal(request.payload.threadId, 'rhythm:local-thread_1')
+  fixture.port.onmessage({ data: { v: 1, documentId: request.documentId, id: request.id, ok: false,
+    error: { code: 'unsupported_method', message: 'Host must intercept scene intent' } } })
+  await assert.rejects(pending, error => error.code === 'unsupported_method')
+  for (const payload of [{ threadId: '' }, { threadId: 'x'.repeat(129) }, { threadId: 'ok', extra: true }]) {
+    await assert.rejects(fixture.bridge.request('scene.select', payload), /invalid/i)
+  }
   fixture.close()
 })
 

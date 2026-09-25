@@ -10,6 +10,7 @@ const fail = (code, message) => { throw Object.assign(new Error(message), { code
 const schemas = {
   'state.read': [[], []],
   'state.write': [['state', 'baseUpdatedAt'], []],
+  'state.mark': [['threadId'], ['archived', 'viewedAt']],
   'state.begin': [['baseUpdatedAt', 'totalBytes', 'sha256'], []],
   'state.chunk': [['transferId', 'index', 'data'], []],
   'state.commit': [['transferId'], []],
@@ -18,6 +19,14 @@ const schemas = {
   'state.readCancel': [['transferId'], []],
   'inventory.page': [[], ['generation', 'cursor', 'collection', 'limit']],
   'inventory.cancel': [['generation'], []],
+  'scene.select': [['threadId'], []],
+  'scene.status': [['webgl'], []],
+}
+const hostSchemas = {
+  'host.select': [['threadId'], []],
+  'host.filter': [[], ['query', 'harness', 'activity', 'includeHistorical']],
+  'host.view': [[], ['quality', 'sound', 'motion', 'resetCamera', 'focusSelection']],
+  'host.visibility': [['hidden'], []],
 }
 
 function jsonOnly(value) {
@@ -60,6 +69,31 @@ function validate(message, documentId) {
   if (Object.hasOwn(payload, 'limit') && (!integer(payload.limit) || payload.limit < 1 || payload.limit > 250)) fail('invalid_request', 'Invalid inventory page limit')
   if (Object.hasOwn(payload, 'cursor') && (typeof payload.cursor !== 'string' || !/^(0|[1-9][0-9]{0,8})$/.test(payload.cursor))) fail('invalid_request', 'Invalid inventory cursor')
   if (Object.hasOwn(payload, 'collection') && !['threads', 'projects', 'warnings'].includes(payload.collection)) fail('invalid_request', 'Invalid inventory collection')
+  if (Object.hasOwn(payload, 'threadId') && (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId))) fail('invalid_request', 'Invalid thread identity')
+  if (Object.hasOwn(payload, 'webgl') && !['ready', 'lost'].includes(payload.webgl)) fail('invalid_request', 'Invalid WebGL status')
+  if (message.method === 'state.mark' && !Object.hasOwn(payload, 'archived') && !Object.hasOwn(payload, 'viewedAt')) fail('invalid_request', 'State mark requires a change')
+  if (Object.hasOwn(payload, 'archived') && typeof payload.archived !== 'boolean') fail('invalid_request', 'Invalid archive mark')
+  if (Object.hasOwn(payload, 'viewedAt') && !integer(payload.viewedAt)) fail('invalid_request', 'Invalid viewed timestamp')
+}
+
+function validateHost(message) {
+  jsonOnly(message)
+  if (!object(message) || Object.keys(message).length !== 4 || message.v !== 1 || message.documentId !== documentId ||
+    typeof message.event !== 'string' || !Object.hasOwn(hostSchemas, message.event)) fail('invalid_request', 'Invalid Colony host event')
+  if (bytes(message) > CONTROL_BYTES) fail('oversize', 'Colony host event exceeds its frame limit')
+  const [required, optional] = hostSchemas[message.event]
+  const payload = message.payload
+  if (!object(payload) || required.some(key => !Object.hasOwn(payload, key)) || Object.keys(payload).some(key => !required.includes(key) && !optional.includes(key))) fail('invalid_request', 'Invalid Colony host event fields')
+  if (Object.hasOwn(payload, 'threadId') && (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId))) fail('invalid_request', 'Invalid thread identity')
+  if (Object.hasOwn(payload, 'query') && (typeof payload.query !== 'string' || payload.query.length > 512)) fail('invalid_request', 'Invalid host query')
+  const allowedHarness = ['hermes', 'codex', 'rhythm', 'opencode', 'kilocode', 'claude-code', 'cursor', 'antigravity']
+  const allowedActivity = ['working', 'waiting', 'blocked', 'celebrating', 'idle', 'unknown']
+  if (Object.hasOwn(payload, 'harness') && (!Array.isArray(payload.harness) || payload.harness.length > allowedHarness.length || new Set(payload.harness).size !== payload.harness.length || payload.harness.some(value => !allowedHarness.includes(value)))) fail('invalid_request', 'Invalid harness filter')
+  if (Object.hasOwn(payload, 'activity') && (!Array.isArray(payload.activity) || payload.activity.length > allowedActivity.length || new Set(payload.activity).size !== payload.activity.length || payload.activity.some(value => !allowedActivity.includes(value)))) fail('invalid_request', 'Invalid activity filter')
+  for (const key of ['includeHistorical', 'sound', 'resetCamera', 'focusSelection', 'hidden']) if (Object.hasOwn(payload, key) && typeof payload[key] !== 'boolean') fail('invalid_request', `Invalid ${key} setting`)
+  if (Object.hasOwn(payload, 'quality') && !['auto', 'high', 'balanced', 'low'].includes(payload.quality)) fail('invalid_request', 'Invalid quality setting')
+  if (Object.hasOwn(payload, 'motion') && !['full', 'reduced'].includes(payload.motion)) fail('invalid_request', 'Invalid motion setting')
+  if (message.event === 'host.view' && Object.keys(payload).length === 0) fail('invalid_request', 'Host view requires a change')
 }
 
 const errorCodes = new Set(['invalid_request', 'unsupported_version', 'revoked', 'unsupported_method', 'oversize', 'busy', 'state_conflict', 'unavailable'])
@@ -74,6 +108,7 @@ let revoked = process.isMainFrame === false
 let attached = false
 let serial = 0
 const pending = new Map()
+const hostSubscribers = new Set()
 const handshakeTimer = setTimeout(() => revoke('Colony channel unavailable'), 10000)
 handshakeTimer.unref?.()
 function revoke(reason = 'Colony document revoked') {
@@ -87,6 +122,12 @@ function revoke(reason = 'Colony document revoked') {
 function receive(event) {
   try {
     const message = event.data
+    if (object(message) && Object.hasOwn(message, 'event')) {
+      validateHost(message)
+      const detached = Object.freeze({ event: message.event, payload: JSON.parse(JSON.stringify(message.payload)) })
+      for (const subscriber of [...hostSubscribers]) subscriber(detached)
+      return
+    }
     jsonOnly(message)
     if (!object(message) || message.v !== 1 || message.documentId !== documentId || !id(message.id) ||
       typeof message.ok !== 'boolean' || Object.keys(message).length !== 5 ||
@@ -147,6 +188,11 @@ contextBridge.exposeInMainWorld('colonyEmbedded', Object.freeze({
         post(entry)
       })
     } catch (error) { throw taggedError(error.code, error.message) }
+  },
+  onHostEvent(subscriber) {
+    if (revoked || typeof subscriber !== 'function') throw taggedError('invalid_request', 'Invalid Colony host subscriber')
+    hostSubscribers.add(subscriber)
+    return () => hostSubscribers.delete(subscriber)
   },
 }))
 // Receiver authenticates the exact sender frame; this event carries no credentials or paths.

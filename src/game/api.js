@@ -4,6 +4,8 @@ import { createEmbeddedTransport } from './embedded-api.js'
 // Bridge presence selects embedded mode even if invalid; never fall back to HTTP.
 const embeddedMode = Object.hasOwn(globalThis, 'colonyEmbedded')
 const bridge = globalThis.colonyEmbedded
+export const embeddedBridge = embeddedMode ? bridge : null
+export const isEmbedded = embeddedMode
 let transport
 const embedded = () => transport ||= createEmbeddedTransport(bridge)
 

@@ -136,3 +136,32 @@ test('private protocol disposal settles pending calls even if the scanner never 
     assert.equal(response.error.code, 'revoked')
   }, () => new Promise(() => {}))
 })
+
+test('scene intents validate at the wire boundary and remain parent-intercept-only', async () => {
+  await withProtocol(async ({ session, message }) => {
+    const valid = await session.handle(message('scene.select', { threadId: 'codex:thread-1' }))
+    assert.equal(valid.ok, false)
+    assert.equal(valid.error.code, 'unsupported_method')
+    for (const payload of [{ threadId: '' }, { threadId: 'x'.repeat(129) }, { threadId: 'ok', extra: true }]) {
+      const invalid = await session.handle(message('scene.select', payload))
+      assert.equal(invalid.ok, false)
+      assert.equal(invalid.error.code, 'invalid_request')
+    }
+  }, () => assert.fail('Scene intents must not scan'))
+})
+
+test('state.mark rejects malformed identities and extra fields before writing', async () => {
+  await withProtocol(async ({ session, message, dir }) => {
+    for (const payload of [
+      { threadId: '', archived: true },
+      { threadId: 'x'.repeat(129), archived: true },
+      { threadId: 'codex:ok', archived: true, extra: true },
+      { threadId: 'codex:ok' },
+    ]) {
+      const result = await session.handle(message('state.mark', payload))
+      assert.equal(result.ok, false)
+      assert.equal(result.error.code, 'invalid_request')
+    }
+    await assert.rejects(fs.stat(path.join(dir, 'colony.json')), { code: 'ENOENT' })
+  }, () => assert.fail('State mark must not scan'))
+})

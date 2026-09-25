@@ -131,3 +131,59 @@ export function createEmbeddedTransport(bridge) {
     },
   }
 }
+
+/** Routes the closed host-event surface without giving the scene native capabilities. */
+export function createEmbeddedHostController(bridge, handlers) {
+  if (!object(bridge) || bridge.product !== 'colony' || bridge.protocolVersion !== 1 ||
+    typeof bridge.request !== 'function' || typeof bridge.onHostEvent !== 'function' || !object(handlers)) reject('Invalid embedded host controller')
+  const unsubscribe = bridge.onHostEvent(message => {
+    if (!object(message) || typeof message.event !== 'string' || !object(message.payload)) return
+    if (message.event === 'host.select') handlers.select?.(message.payload.threadId, { fly: true })
+    else if (message.event === 'host.filter') handlers.filter?.(structuredClone(message.payload))
+    else if (message.event === 'host.view') handlers.view?.(structuredClone(message.payload))
+    else if (message.event === 'host.visibility') handlers.visibility?.(structuredClone(message.payload))
+  })
+  return Object.freeze({
+    dispose: unsubscribe,
+    sceneSelected: threadId => bridge.request('scene.select', { threadId }),
+    webglLost: () => bridge.request('scene.status', { webgl: 'lost' }),
+  })
+}
+
+export function createEmbeddedVisibilityScheduler({ poll, isDocumentHidden, setIntervalFn = setInterval, clearIntervalFn = clearInterval, period }) {
+  if (typeof poll !== 'function' || typeof isDocumentHidden !== 'function') reject('Invalid visibility scheduler')
+  let hostHidden = false
+  let visible = !isDocumentHidden()
+  const canPoll = () => !hostHidden && !isDocumentHidden()
+  const timer = setIntervalFn(() => { if (canPoll()) poll() }, period)
+  const wake = () => {
+    const next = canPoll()
+    if (next && !visible) poll()
+    visible = next
+  }
+  return Object.freeze({
+    setHostHidden(hidden) { hostHidden = Boolean(hidden); wake() },
+    documentVisibilityChanged: wake,
+    dispose() { clearIntervalFn(timer) },
+  })
+}
+
+export function applyEmbeddedQuality(settings, quality) {
+  settings.applyPreset(quality === 'auto' ? 'balanced' : quality)
+  if (quality !== 'low') return
+  settings.set('renderScale', Math.min(0.7, Number(settings.get('renderScale')) || 0.7))
+  settings.set('bloom', false)
+  settings.set('tiltShift', false)
+  settings.set('ambientOcclusion', 0)
+  settings.set('clouds', false)
+}
+
+export function filterEmbeddedThreads(threads, { query = '', harness = [], activity = [] } = {}, statusForThread = thread => thread.activity) {
+  const needle = query.trim().toLowerCase()
+  const harnesses = new Set(harness)
+  const activities = new Set(activity)
+  return threads.filter(thread => (!harnesses.size || harnesses.has(thread.harness)) &&
+    (!activities.size || activities.has(statusForThread(thread))) &&
+    (!needle || [thread.title, thread.projectName, thread.cwd, thread.gitBranch, thread.harnessName, thread.agentName, thread.profile]
+      .join(' ').toLowerCase().includes(needle)))
+}
