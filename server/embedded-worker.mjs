@@ -4,6 +4,7 @@ import { createEmbeddedService } from './embedded-service.mjs'
 import { createProtocolSession } from './embedded-protocol.mjs'
 
 let initialized = false
+let initializing = false
 let stopped = false
 let documentId
 let scanner
@@ -22,12 +23,16 @@ process.on('disconnect', dispose)
 process.on('message', async message => {
   if (stopped) return
   if (message?.type === 'colony:init') {
-    if (initialized) return error('duplicate_init')
+    if (initialized || initializing) return error('duplicate_init')
     try {
       if (message.v !== 1 || typeof message.documentId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(message.documentId) ||
         typeof message.dataDir !== 'string' || !path.isAbsolute(message.dataDir) ||
         Object.keys(message).length !== 5 || Buffer.byteLength(JSON.stringify(message)) > 64 * 1024) throw new Error('Invalid handshake')
       validateSources(message.sources)
+      initializing = true
+      // Capability observation only: importing the builtin never opens a store.
+      const sqlite = await import('node:sqlite').then(module => typeof module.DatabaseSync === 'function').catch(() => false)
+      if (stopped) return
       // Only this owned process is configured, exactly once, before any lazy adapter import.
       for (const source of message.sources.filter(item => item.enabled)) {
         for (const [key, env] of Object.entries(sourcePaths[source.id])) process.env[env] = source.paths[key]
@@ -37,8 +42,9 @@ process.on('message', async message => {
       documentId = message.documentId
       protocol = createProtocolSession({ service, documentId })
       initialized = true
-      send({ type: 'colony:ready', v: 1, product: 'colony', documentId, capabilities: ['inventory-v1', 'state-v1'] })
+      send({ type: 'colony:ready', v: 1, product: 'colony', documentId, capabilities: ['inventory-v1', 'state-v1'], runtime: { node: process.versions.node, sqlite } })
     } catch { error('invalid_handshake') }
+    finally { initializing = false }
     return
   }
   if (!initialized) return error('init_required')

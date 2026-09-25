@@ -48,3 +48,9 @@ Explicit adapter paths are installed only inside the owned worker before lazy im
 ## Parent integration review
 
 Parent reviewed every product diff and independently ran the same seven focused suites: **45/45 pass**, no skipped tests. Evidence: `/Users/ajhochhalter/Documents/rhythm-orchestration-evidence/2026-09-24-repair4/colony-worker-parent.log`. GitNexus detect-changes was attempted and unavailable for the unindexed Bot Crossing repository; direct diff review covers the embedded worker/preload and unchanged standalone defaults. Native receiver and final artifact pin remain pending.
+
+## Additive native runtime handshake
+
+Parent authorized the worker-only increment after source `569cf72`: `ready.runtime` now reports the actual Node version and whether a safe dynamic import exposes SQLite DatabaseSync. No source adapters or stores are loaded for this check. An initializing guard refuses simultaneous reconfiguration while the import is pending. Native supervisor must require Node >=22.13 and SQLite true before requests.
+
+Runtime assertion RED: 1 failed / 5 passed, `/private/tmp/colony-worker-runtime-red.log`; focused worker plus isolated artifact builder: 7/7 pass, `/private/tmp/colony-worker-runtime-focused.log`. No broad rerun or clean artifact/pin change. Parent review/commit/rebuild required before native fixture uses the new metadata.

@@ -63,6 +63,7 @@ test('actual private worker scans a synthetic enabled source without sockets or 
     assert.equal(ready.v, 1)
     assert.equal(ready.product, 'colony')
     assert.deepEqual(ready.capabilities, ['inventory-v1', 'state-v1'])
+    assert.deepEqual(ready.runtime, { node: process.versions.node, sqlite: true })
     assert.equal(ready.documentId, init.documentId)
     child.send({ v: 1, documentId: init.documentId, id: 'scan-1', method: 'inventory.page', payload: { collection: 'threads', limit: 250 } })
     const response = await wait(message => message.id === 'scan-1')
