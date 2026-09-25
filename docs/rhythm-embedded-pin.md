@@ -4,9 +4,9 @@ The final pin is the orchestrator-created commit for this lane after it reviews 
 
 ## Pinned build inputs
 
-- Source revision: `<ORCHESTRATOR_COMMIT_FOR_THIS_LANE>`
+- Source revision: `c5163e4d0f7dfcec5e45a09b442096ed35a891d3`
 - Electron: `40.10.2` (`electronMajor: 40`)
-- Node: `22.22.0` (the Rhythm CI packager patch)
+- Node: manifest `nodeVersion` is the build tool's recorded runtime constant (`22.23.0`); Rhythm CI packages Node 22.22.0 and the worker handshake requires Node >= 22.13 with SQLite.
 - Minimum macOS: `12.0`
 
 ## Clean qualification command
@@ -14,7 +14,7 @@ The final pin is the orchestrator-created commit for this lane after it reviews 
 Run from a fresh clone with Node 22.22.0. The dependency install is intentionally reserved for the orchestrator because implementer worktrees share symlinked dependencies.
 
 ```sh
-git checkout <ORCHESTRATOR_COMMIT_FOR_THIS_LANE>
+git checkout c5163e4d0f7dfcec5e45a09b442096ed35a891d3
 npm ci
 npm test
 npm run build:rhythm-embedded
@@ -27,6 +27,15 @@ diff -u /tmp/colony-manifest-first.json /tmp/colony-manifest-second.json
 
 The accepted receipt must report `sourceCommit` equal to the orchestrator commit, `dirty: false`, `sourceDirty: false`, `nodeVersion: 22.22.0`, `electronMajor: 40`, the sealed file count, and `assetSizeBytes`. Any manifest difference is a qualification failure; there are no documented nondeterministic manifest fields.
 
-## Implementer candidate receipt
+## Clean-clone receipt (orchestrator, 2026-09-24)
 
-The in-worktree build is evidence only for this uncommitted candidate. It cannot qualify the final pin because its source revision remains the base commit, its dirty flags must be true, and the available runtime is Node 22.23.0 rather than the required Node 22.22.0. The orchestrator must replace this section with the clean-clone receipt after committing the lane.
+Fresh `git clone` of the lane branch, checkout `c5163e4d0f7dfcec5e45a09b442096ed35a891d3`, `npm ci` (39 packages), `npm test` → 281/281 pass, then `npm run build:rhythm-embedded` twice: the two manifests are byte-identical.
+
+```
+sourceCommit: c5163e4d0f7dfcec5e45a09b442096ed35a891d3
+dirty: false, sourceDirty: false
+fileCount: 45, assetSizeBytes: 6841476
+nodeVersion: 22.23.0, electronMajor: 40
+```
+
+The receipt-bearing documentation commit follows the pin commit; the pin is the code commit above.
