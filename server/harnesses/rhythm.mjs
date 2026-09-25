@@ -136,7 +136,7 @@ async function scanThreads(options = {}) {
   }
 
   const sig = await signature(file)
-  const desktop = await rhythmDesktop()
+  const desktop = options.nativeCapabilities === false ? { available: false, reason: 'Embedded observation only' } : await rhythmDesktop()
   const customNow = Number.isFinite(options.now)
   if (!customNow && cache?.file === file && cache.signature === sig) return cloneThreads(cache.threads, desktop)
 
@@ -288,13 +288,13 @@ async function detect() {
   return Boolean(await dbPath())
 }
 
-async function diagnostic() {
+async function diagnostic(options = {}) {
   const file = await dbPath()
   if (!file) return ''
   if (!(await sqliteApi())?.DatabaseSync) {
     return `Rhythm threads need Node 22.13 or newer for SQLite (running ${process.versions.node})`
   }
-  if (!diagnostics.has(file)) await scanThreads()
+  if (!diagnostics.has(file)) await scanThreads(options)
   return diagnostics.get(file) || ''
 }
 

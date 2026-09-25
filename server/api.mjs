@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { createStateStore } from './state-store.mjs'
 import { schemeHasHandler, schemeOf } from './lib/xdg.mjs'
 import { openInTerminal } from './lib/terminal.mjs'
 import { focusWindowOfPid } from './lib/windows.mjs'
@@ -17,130 +18,11 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.BOT_CROSSING_DATA || path.join(here, '..', 'data')
-const STATE_FILE = path.join(DATA_DIR, 'colony.json')
+const stateStore = createStateStore({ dataDir: path.resolve(DATA_DIR), mode: 'http' })
 const resolveProjects = createProjectResolver({ dataDir: DATA_DIR })
 
-const STATE_VERSION = 3
-
-/**
- * v1 keyed everything on a bare session id, because Claude Code was the only harness and its
- * ids are UUIDs. Adapters now prefix (`claude-code:…`, `codex:…`) so two harnesses can never
- * name the same thread, which means a v1 file's archive list no longer matches anything.
- *
- * Only Claude Code ever wrote a bare id, so the rewrite is unambiguous. One shot, on read.
- */
-const BARE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const migrateId = (id) => (BARE_UUID.test(id) ? `claude-code:${id}` : id)
-
-function migrate(raw) {
-  if (Number(raw.version) >= 2) return raw
-  const keys = (o) => Object.fromEntries(Object.entries(asObject(o)).map(([k, v]) => [migrateId(k), v]))
-  return {
-    ...raw,
-    archived: asArray(raw.archived).map(migrateId),
-    archivedAt: keys(raw.archivedAt),
-    opened: asArray(raw.opened).map(migrateId),
-    seen: keys(raw.seen),
-    viewedAt: keys(raw.viewedAt),
-  }
-}
-
-/**
- * Colony state is only ever the things the *game* invents — which plot a project got,
- * what a thread's building looks like, what you archived, which repos you took off the map.
- * The threads themselves stay
- * read-only: this file is the only thing Bot Crossing writes, anywhere.
- */
-const emptyState = () => ({
-  version: STATE_VERSION,
-  archived: [],
-  archivedAt: {},
-  opened: [],
-  plots: {},
-  seen: {},
-  hiddenProjects: [],
-  viewedAt: {},
-  projectOverrides: {},
-  projectAliases: {},
-  projectMigrations: {},
-  sessionMigrations: {},
-  settings: null,
-  updatedAt: 0,
-})
-
-const asObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
-const asArray = (v) => (Array.isArray(v) ? v : [])
-
-async function readState() {
-  try {
-    const raw = migrate(JSON.parse(await fsp.readFile(STATE_FILE, 'utf8')))
-    return {
-      version: STATE_VERSION,
-      archived: asArray(raw.archived),
-      archivedAt: asObject(raw.archivedAt),
-      opened: asArray(raw.opened),
-      plots: asObject(raw.plots),
-      seen: asObject(raw.seen),
-      hiddenProjects: asArray(raw.hiddenProjects).map(String).filter(Boolean),
-      viewedAt: asObject(raw.viewedAt),
-      projectOverrides: asObject(raw.projectOverrides),
-      projectAliases: asObject(raw.projectAliases),
-      projectMigrations: asObject(raw.projectMigrations),
-      sessionMigrations: asObject(raw.sessionMigrations),
-      settings: raw.settings && typeof raw.settings === 'object' ? raw.settings : null,
-      updatedAt: Number(raw.updatedAt) || 0,
-    }
-  } catch (err) {
-    if (err.code === 'ENOENT') return emptyState()
-    throw new Error('Colony state could not be read. The saved file has been left untouched; repair or restore it before saving.')
-  }
-}
-
-/**
- * One writer: the browser owns this file and PUTs it whole. Nothing on the server writes it —
- * if anything did, the next save from a page holding older state would silently drop every
- * archive made since that page loaded.
- */
-/**
- * Writes are serialised through one chain, and each gets its own temp file.
- *
- * Both halves matter and neither is theoretical. A shared `colony.json.tmp` means two saves
- * landing together race on the rename and one throws ENOENT — a 500 the page has no idea what
- * to do with, so the save is simply lost. And read-then-write is not atomic across an `await`,
- * so without the chain two callers can both pass the version check below before either writes.
- */
-let writeQueue = Promise.resolve()
-let tmpSeq = 0
-const serialise = (fn) => (writeQueue = writeQueue.then(fn, fn))
-
-async function writeState(next) {
-  const state = {
-    version: STATE_VERSION,
-    archived: asArray(next.archived),
-    archivedAt: asObject(next.archivedAt),
-    opened: asArray(next.opened),
-    plots: asObject(next.plots),
-    seen: asObject(next.seen),
-    hiddenProjects: asArray(next.hiddenProjects).map(String).filter(Boolean),
-    viewedAt: asObject(next.viewedAt),
-    projectOverrides: asObject(next.projectOverrides),
-    projectAliases: asObject(next.projectAliases),
-    projectMigrations: asObject(next.projectMigrations),
-    sessionMigrations: asObject(next.sessionMigrations),
-    settings: next.settings && typeof next.settings === 'object' ? next.settings : null,
-    updatedAt: Date.now(),
-  }
-  await fsp.mkdir(DATA_DIR, { recursive: true })
-  const tmp = `${STATE_FILE}.${process.pid}.${++tmpSeq}.tmp`
-  try {
-    await fsp.writeFile(tmp, JSON.stringify(state, null, 2))
-    await fsp.rename(tmp, STATE_FILE)
-  } catch (err) {
-    await fsp.rm(tmp, { force: true }).catch(() => {})
-    throw err
-  }
-  return state
-}
+// HTTP alone retains historical tolerant fields and missing/zero-base curl writes.
+const readState = () => stateStore.read()
 
 /**
  * Hand a `harness://…` deep link, or a folder, to whatever opens things on this OS. The
@@ -470,12 +352,8 @@ export async function apiMiddleware(req, res, next) {
      */
     if (url.pathname === '/api/state' && req.method === 'PUT') {
       const body = await readJsonBody(req)
-      const base = Number(body.baseUpdatedAt) || 0
-      return await serialise(async () => {
-        const current = await readState()
-        if (base && current.updatedAt !== base) return send(res, 409, current)
-        return send(res, 200, await writeState(body))
-      })
+      const result = await stateStore.save(body, body.baseUpdatedAt)
+      return send(res, result.conflict ? 409 : 200, result.state)
     }
 
     if (url.pathname === '/api/open' && req.method === 'POST') {

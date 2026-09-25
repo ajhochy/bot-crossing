@@ -1,0 +1,81 @@
+import path from 'node:path'
+import { createEmbeddedScanner, validateSources, sourcePaths } from './embedded-scanner.mjs'
+import { createEmbeddedService } from './embedded-service.mjs'
+import { createProtocolSession } from './embedded-protocol.mjs'
+
+let initialized = false
+let initializing = false
+let stopped = false
+let documentId
+let scanner
+let protocol
+let service
+const send = message => { if (!stopped && process.connected) process.send(message) }
+const error = (code, message = 'Invalid Colony worker handshake or lifecycle control') => send({ type: 'colony:error', error: { code, message: String(message).slice(0, 1024) } })
+const stateReceipt = state => ({ updatedAt: state.updatedAt, counts: { archived: state.archived.length,
+  viewed: Object.keys(state.viewedAt).length, groups: Object.keys(state.projectOverrides).length } })
+function dispose() {
+  if (stopped) return
+  stopped = true
+  protocol?.dispose()
+  scanner?.dispose()
+  process.exit(0)
+}
+if (!process.send) throw new Error('Colony worker requires an owned parent IPC channel')
+process.on('disconnect', dispose)
+process.on('message', async message => {
+  if (stopped) return
+  if (message?.type === 'colony:init') {
+    if (initialized || initializing) return error('duplicate_init')
+    try {
+      if (message.v !== 1 || typeof message.documentId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(message.documentId) ||
+        typeof message.dataDir !== 'string' || !path.isAbsolute(message.dataDir) ||
+        Object.keys(message).length !== 5 || Buffer.byteLength(JSON.stringify(message)) > 64 * 1024) throw new Error('Invalid handshake')
+      validateSources(message.sources)
+      initializing = true
+      // Capability observation only: importing the builtin never opens a store.
+      const sqlite = await import('node:sqlite').then(module => typeof module.DatabaseSync === 'function').catch(() => false)
+      if (stopped) return
+      // Only this owned process is configured, exactly once, before any lazy adapter import.
+      for (const source of message.sources.filter(item => item.enabled)) {
+        for (const [key, env] of Object.entries(sourcePaths[source.id])) process.env[env] = source.paths[key]
+      }
+      scanner = createEmbeddedScanner({ dataDir: message.dataDir, sources: message.sources })
+      service = createEmbeddedService({ dataDir: message.dataDir, scan: scanner.scan })
+      documentId = message.documentId
+      protocol = createProtocolSession({ service, documentId })
+      initialized = true
+      send({ type: 'colony:ready', v: 1, product: 'colony', documentId,
+        capabilities: ['inventory-v1', 'state-v1', 'host-intents-v1', 'state-mark-v1', 'import-v1'],
+        runtime: { node: process.versions.node, sqlite } })
+    } catch { error('invalid_handshake') }
+    finally { initializing = false }
+    return
+  }
+  if (!initialized) return error('init_required')
+  if (['colony:import-preview', 'colony:import-commit'].includes(message?.type)) {
+    try {
+      if (message.v !== 1 || message.documentId !== documentId || typeof message.path !== 'string' || message.path.length > 4096 || !path.isAbsolute(message.path) || Object.keys(message).length !== 4 || Buffer.byteLength(JSON.stringify(message)) > 64 * 1024) throw new Error('Invalid import control')
+      const value = message.type === 'colony:import-preview' ? await service.importPreview(message.path) : await service.importCommit(message.path)
+      send(message.type === 'colony:import-preview'
+        ? { type: 'colony:import-preview-result', v: 1, documentId, counts: value }
+        : { type: 'colony:import-commit-result', v: 1, documentId, receipt: stateReceipt(value) })
+    } catch (failure) { error('invalid_import', failure.message) }
+    return
+  }
+  if (message?.type === 'colony:backup-restore') {
+    try {
+      if (message.v !== 1 || message.documentId !== documentId || typeof message.backup !== 'string' || Object.keys(message).length !== 4) throw new Error('Invalid backup control')
+      const state = await service.backupRestore(message.backup)
+      send({ type: 'colony:backup-restore-result', v: 1, documentId, receipt: stateReceipt(state) })
+    } catch (failure) { error('invalid_import', failure.message) }
+    return
+  }
+  if (message?.type === 'colony:dispose') {
+    if (message.v === 1 && message.documentId === documentId && Object.keys(message).length === 3) dispose()
+    else error('invalid_handshake')
+    return
+  }
+  const response = await protocol.handle(message)
+  send(response)
+})
