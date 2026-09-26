@@ -54,7 +54,8 @@ test('embedded multi-select filters apply the same query, harness and activity s
   assert.deepEqual(filterEmbeddedThreads(rows, { query: 'release', harness: ['codex', 'rhythm'], activity: ['working', 'waiting'] }).map(row => row.id), ['a', 'b'])
 })
 
-test('embedded HUD keeps standalone controls detached while standalone mode mounts them unchanged', async () => {
+test('embedded HUD mounts the original controls and marks new conversation unavailable', async () => {
+  // Regression caught: embedded mode hides Bot Crossing's HUD or leaves New conversation clickable even though no host action exists.
   class Element {
     constructor() {
       this.children = []
@@ -96,9 +97,10 @@ test('embedded HUD keeps standalone controls detached while standalone mode moun
     globalThis.colonyEmbedded = {}
     const embeddedRoot = new Element()
     const embeddedHud = new Hud(embeddedRoot, settings, {})
-    assert.equal(embeddedRoot.children.includes(embeddedHud.el), false)
+    assert.equal(embeddedRoot.children.includes(embeddedHud.el), true)
     assert.ok(embeddedHud.$('#btn-open'))
-    assert.ok(embeddedHud.$('#btn-new-session'))
+    assert.equal(embeddedHud.$('#btn-new-session').disabled, true)
+    assert.match(embeddedHud.$('#btn-new-session').title, /unavailable.*embedded|Rhythm/i)
     delete globalThis.colonyEmbedded
     const standaloneRoot = new Element()
     const standaloneHud = new Hud(standaloneRoot, settings, {})

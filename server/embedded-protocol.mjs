@@ -17,6 +17,7 @@ const schemas = {
   'state.readCancel': [['transferId'], []],
   'inventory.page': [[], ['generation', 'cursor', 'collection', 'limit']],
   'inventory.cancel': [['generation'], []],
+  'action.run': [['kind', 'id'], []],
   'scene.select': [['threadId'], []],
   'scene.status': [['webgl'], []],
 }
@@ -62,6 +63,7 @@ function validate(message, documentId) {
   if (Object.hasOwn(payload, 'cursor') && (typeof payload.cursor !== 'string' || !/^(0|[1-9][0-9]{0,8})$/.test(payload.cursor))) fail('invalid_request', 'Invalid inventory cursor')
   if (Object.hasOwn(payload, 'collection') && !['threads', 'projects', 'warnings'].includes(payload.collection)) fail('invalid_request', 'Invalid inventory collection')
   if (Object.hasOwn(payload, 'threadId') && (typeof payload.threadId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.threadId))) fail('invalid_request', 'Invalid thread identity')
+  if (message.method === 'action.run' && (!['open', 'reveal', 'copyPath'].includes(payload.kind) || typeof payload.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(payload.id))) fail('invalid_request', 'Invalid Colony action')
   if (Object.hasOwn(payload, 'webgl') && !['ready', 'lost'].includes(payload.webgl)) fail('invalid_request', 'Invalid WebGL status')
   if (message.method === 'state.mark' && !Object.hasOwn(payload, 'archived') && !Object.hasOwn(payload, 'viewedAt')) fail('invalid_request', 'State mark requires a change')
   if (Object.hasOwn(payload, 'archived') && typeof payload.archived !== 'boolean') fail('invalid_request', 'Invalid archive mark')
@@ -96,7 +98,7 @@ export function createProtocolSession({ service, documentId }) {
         requestId = message.id
         if (pending.has(requestId)) fail('invalid_request', 'Duplicate outstanding Colony request')
         if (pending.size >= 32) fail('busy', 'Colony request limit reached')
-        if (message.method.startsWith('scene.')) fail('unsupported_method', 'Host must intercept scene intent')
+        if (message.method.startsWith('scene.') || message.method === 'action.run') fail('unsupported_method', 'Host must intercept scene intent')
         let revoke
         const revoked = new Promise(resolve => { revoke = resolve })
         pending.set(requestId, revoke)

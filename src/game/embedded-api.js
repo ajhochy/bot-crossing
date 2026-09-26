@@ -129,6 +129,12 @@ export function createEmbeddedTransport(bridge) {
       if (!checkout) reject('Checkout is no longer in the scan; refresh the colony')
       return { checkout: structuredClone(checkout) }
     },
+    async runAction(kind, id) {
+      if (!['open', 'reveal', 'copyPath'].includes(kind) || typeof id !== 'string') reject('Invalid embedded action')
+      const result = await request('action.run', { kind, id })
+      if (result.ok !== true) reject(result.reason || 'Bot Crossing action failed')
+      return result
+    },
   }
 }
 

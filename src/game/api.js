@@ -131,9 +131,13 @@ export async function saveState(state) {
  * thread again, and the browser only ever passes it straight back. Nothing in the UI knows
  * what a Claude Code session id, or a Codex rollout id, actually looks like.
  */
-export const openThread = (thread, via) => post('/api/open', { harness: thread.harness, ref: thread.ref, via })
+export const openThread = (thread, via) => embeddedMode
+  ? embedded().runAction('open', thread.id)
+  : post('/api/open', { harness: thread.harness, ref: thread.ref, via })
 
 /** A brand new thread in a repo, via that harness's own new-session deep link. */
 export const newSession = (folder, harness, via) => post('/api/new-session', { folder, harness, via })
 
-export const revealFolder = (folder) => post('/api/reveal', { folder })
+export const revealFolder = (folder) => embeddedMode
+  ? embedded().runAction('reveal', folder?.id)
+  : post('/api/reveal', { folder })

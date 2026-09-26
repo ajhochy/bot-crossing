@@ -254,13 +254,17 @@ const actions = {
     catch { hud.toast(copyFallback(path) ? 'Path copied' : 'Could not reach clipboard') }
   },
   revealPath: async (path) => {
-    try { await revealFolder(path) } catch (err) { hud.toast(err.message, 'err') }
+    const target = isEmbedded ? threads.find(thread => thread.cwd === path || thread.checkout?.path === path) : path
+    try { await revealFolder(target) } catch (err) { hud.toast(err.message, 'err') }
   },
   revealProject: async () => {
     const folder = selectedProject && pathForProject(selectedProject)
     if (!folder) return
     try {
-      await revealFolder(folder)
+      const target = isEmbedded
+        ? threads.find(thread => thread.id === selectedId) || threads.find(thread => thread.project === selectedProject)
+        : folder
+      await revealFolder(target)
     } catch (err) {
       hud.toast(err.message || 'Could not open that folder', 'err')
     }
@@ -907,7 +911,6 @@ window.addEventListener('keydown', (e) => {
       hud.setOrbit(false)
       break
     case 'Enter':
-      if (isEmbedded) break
       if (selectedId) actions.openThread()
       break
     case 'a':

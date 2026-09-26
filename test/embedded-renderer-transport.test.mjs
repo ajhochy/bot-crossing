@@ -137,13 +137,28 @@ test('embedded scene assembles threads, project inventory and warnings from one 
   })
 })
 
-test('embedded scene refuses privileged standalone actions without any transport or network call', async () => {
+test('embedded open uses the inventory thread id through the closed host action bridge', async () => {
+  // Regression caught: Enter/Open calls standalone HTTP or sends a harness ref the host cannot safely resolve.
   await withClient(async ({ client, calls, network }) => {
-    for (const action of [
-      () => client.newSession('/synthetic', 'codex', 'terminal'),
-      () => client.openThread({ harness: 'codex', ref: 'synthetic' }, 'terminal'),
-      () => client.revealFolder('/synthetic'),
-    ]) await assert.rejects(action(), /unavailable|unsupported|not allowed/i)
+    await client.openThread({ id: 'codex:synthetic', harness: 'codex', ref: 'private-ref' }, 'terminal')
+    assert.deepEqual(calls, [{ method: 'action.run', payload: { kind: 'open', id: 'codex:synthetic' } }])
+    assert.equal(network(), 0)
+  }, undefined, async method => method === 'action.run' ? { ok: true, kind: 'external-app' } : undefined)
+})
+
+test('embedded reveal uses the inventory thread id through the closed host action bridge', async () => {
+  // Regression caught: Reveal sends a filesystem path across the renderer boundary instead of the current inventory id.
+  await withClient(async ({ client, calls, network }) => {
+    await client.revealFolder({ id: 'rhythm:synthetic', checkout: { path: '/private/path' } })
+    assert.deepEqual(calls, [{ method: 'action.run', payload: { kind: 'reveal', id: 'rhythm:synthetic' } }])
+    assert.equal(network(), 0)
+  }, undefined, async method => method === 'action.run' ? { ok: true, kind: 'revealed' } : undefined)
+})
+
+test('embedded new session stays unavailable without transport or network calls', async () => {
+  // Regression caught: the visible New conversation control invokes an action Rhythm cannot fulfill.
+  await withClient(async ({ client, calls, network }) => {
+    await assert.rejects(client.newSession('/synthetic', 'codex', 'terminal'), /unavailable|unsupported|not allowed/i)
     assert.equal(calls.length, 0)
     assert.equal(network(), 0)
   })

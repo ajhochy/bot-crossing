@@ -69,15 +69,17 @@ export class Hud {
     this.el = document.createElement('div')
     this.el.className = 'hud'
     this.el.innerHTML = TEMPLATE
-    // Rhythm owns every surrounding control; keep the standalone HUD operational but detached
-    // so its state methods can still be reused without painting duplicate chrome.
-    if (!Object.hasOwn(globalThis, 'colonyEmbedded')) root.appendChild(this.el)
+    root.appendChild(this.el)
 
     this.$ = (sel) => this.el.querySelector(sel)
 
     this._buildStats()
     this._buildSettings()
     this._buildAvatar()
+    if (Object.hasOwn(globalThis, 'colonyEmbedded')) {
+      this.$('#btn-new-session').disabled = true
+      this.$('#btn-new-session').title = 'New conversations are unavailable in embedded Rhythm'
+    }
     this._wire()
     this.syncSettings()
     // Read layout when panels resize/change, never in the animation loop.
@@ -679,7 +681,7 @@ export class Hud {
     path.textContent = project.path || 'Folder unknown'
     path.title = project.path || ''
     // Nothing to open a new thread in, and nothing to reveal, without a folder on disk.
-    this.$('#btn-new-session').disabled = !project.path || !project.pathAvailable
+    this.$('#btn-new-session').disabled = Object.hasOwn(globalThis, 'colonyEmbedded') || !project.path || !project.pathAvailable
     this.$('#btn-reveal').disabled = !project.path || !project.pathAvailable
     this.$('#btn-copy-path').disabled = !project.path
 
