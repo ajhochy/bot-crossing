@@ -33,9 +33,9 @@
       "text": "Standalone and embedded rendered layouts match; only Bot Crossing menu/panel styling differs.",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
-      "reason": "Requires the requested 1440x900 screenshot comparison after implementation."
+      "status": "pass",
+      "reason": "Standalone and embedded 1440x900 screenshots were inspected; HUD/scene positions match and only HUD surfaces differ."
     }
   ],
-  "not_tested": ["task-bot-crossing-original-ui-c4"]
+  "not_tested": []
 }
