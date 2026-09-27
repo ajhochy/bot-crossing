@@ -7,6 +7,7 @@ import { fork } from 'node:child_process'
 import { once } from 'node:events'
 import { createEmbeddedService } from '../server/embedded-service.mjs'
 import { mergeState } from '../src/game/merge-state.js'
+import { normalizeState } from '../server/state-model.mjs'
 
 async function withAdapter(kind, run) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'colony-shared-state-'))
@@ -184,6 +185,17 @@ test('embedded exact-base requirement remains stricter than standalone curl comp
     await assert.rejects(write({ archived: ['first'] }), /valid baseUpdatedAt/)
     await assert.rejects(fs.stat(file), { code: 'ENOENT' })
   })
+})
+
+test('task-bot-crossing-c5: unarchivedAt defaults, migrates, and conflict-merges by newest timestamp', () => {
+  // Regression: an older conflict retry shortens restore grace or a legacy state omits the map.
+  assert.deepEqual(normalizeState({ version: 3, updatedAt: 0 }, { mode: 'http' }).unarchivedAt, {})
+  const merged = mergeState(
+    { unarchivedAt: { same: 10, remote: 10 } },
+    { unarchivedAt: { same: 20, remote: 10, local: 30 } },
+    { unarchivedAt: { same: 25, remote: 40 } },
+  )
+  assert.deepEqual(merged.unarchivedAt, { same: 25, remote: 40, local: 30 })
 })
 
 test('standalone tolerant fields do not weaken embedded shape validation', async () => {

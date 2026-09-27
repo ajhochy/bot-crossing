@@ -1,7 +1,7 @@
 export const MAX_STATE_BYTES = 32 * 1024 * 1024
 
 const arrayFields = ['archived', 'opened', 'hiddenProjects']
-const mapFields = ['archivedAt', 'plots', 'seen', 'viewedAt', 'projectOverrides', 'projectAliases', 'projectMigrations', 'sessionMigrations']
+const mapFields = ['archivedAt', 'unarchivedAt', 'plots', 'seen', 'viewedAt', 'projectOverrides', 'projectAliases', 'projectMigrations', 'sessionMigrations']
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const asObject = value => object(value) ? value : {}
 const asArray = value => Array.isArray(value) ? value : []
@@ -9,7 +9,7 @@ const reject = message => { throw new Error(message) }
 
 export function emptyState() {
   return {
-    version: 3, archived: [], archivedAt: {}, opened: [], plots: {}, seen: {},
+    version: 3, archived: [], archivedAt: {}, unarchivedAt: {}, opened: [], plots: {}, seen: {},
     hiddenProjects: [], viewedAt: {}, projectOverrides: {}, projectAliases: {},
     projectMigrations: {}, sessionMigrations: {}, settings: null, updatedAt: 0,
   }
@@ -20,7 +20,7 @@ function migrate(state) {
   const id = value => bareUuid.test(value) ? `claude-code:${value}` : value
   const keys = value => Object.fromEntries(Object.entries(asObject(value)).map(([key, item]) => [id(key), item]))
   for (const key of ['archived', 'opened']) state[key] = asArray(state[key]).map(id)
-  for (const key of ['archivedAt', 'seen', 'viewedAt']) state[key] = keys(state[key])
+  for (const key of ['archivedAt', 'unarchivedAt', 'seen', 'viewedAt']) state[key] = keys(state[key])
 }
 
 /** Unknown JSON fields are opaque state. Only adapter metadata is discarded. */

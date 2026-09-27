@@ -31,6 +31,7 @@ import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-project
 import { withErrands } from './game/errands.js'
 import { groupProjects, migrateProjectState, migrateSessionState, filterSessions, projectCategory, projectOverview } from './game/projects.js'
 import { mergeState } from './game/merge-state.js'
+import { archiveColonyThread, autoArchiveBatch, rankColonyRoster, restoreColonyThread } from './game/auto-archive.js'
 
 /**
  * Boot and the outer game loop.
@@ -68,7 +69,8 @@ engine.setPlanetGrade(PLANETS[settings.get('planet')]?.grade)
 const rig = new CameraRig(engine.camera, engine.canvas, settings)
 const colony = new Colony(engine.scene, settings, engine.camera, engine.renderer)
 
-let state = { archived: [], archivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {} }
+let state = { archived: [], archivedAt: {}, unarchivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {} }
+let autoArchivePending = false
 let threads = []
 let sourceThreads = []
 let projectInventory = []
@@ -345,13 +347,21 @@ const actions = {
   // `reconcileArchived` in server/api.mjs for why that stopped being worth doing.
   archiveThread: () => {
     const thread = threads.find((t) => t.id === selectedId)
-    if (!thread) return
+    if (!thread || thread.harnessArchived) return
     const foldedBefore = new Set(colony.dormantProjects || [])
-    state.archived = [...new Set([...state.archived, thread.id])]
-    state.archivedAt = { ...state.archivedAt, [thread.id]: Date.now() }
+    const restoring = thread.colonyArchived === true
+    const next = restoring
+      ? restoreColonyThread(state, thread, { now: Date.now() })
+      : archiveColonyThread(state, thread, { now: Date.now() })
+    if (next === state) return
+    state = next
     queueSave()
     select(null, {})
-    applyThreads(threads)
+    applyThreads(sourceThreads)
+    if (restoring) {
+      hud.toast('Restored to Colony — active for at least 48 hours')
+      return
+    }
     // Retiring the last thread anybody has touched in a repo makes every thread left in it
     // dormant, and the whole zone folds away — sixty astronauts can leave the map on one
     // click. That is the setting working, but silently it reads as the colony breaking, so
@@ -995,15 +1005,28 @@ function applyThreads(list) {
     queueSave()
   }
 
+  if (autoArchivePending) {
+    autoArchivePending = false
+    const archived = autoArchiveBatch(state, list, { now: Date.now() })
+    if (archived.state !== state) {
+      state = archived.state
+      queueSave()
+      hud.toast(archived.notice)
+    }
+  }
+
   // A thread you have said you looked at stops counting as unread until it moves on again.
   // Done here rather than in `statusFor` so the card, the badge and the astronaut all agree.
   const viewed = state.viewedAt || {}
+  const archivedSet = new Set(state.archived)
   threads = list.map((t) => {
     const at = viewed[t.id]
-    return at ? { ...t, unread: t.lastActivityAt > at, readState: t.lastActivityAt > at ? 'unread' : 'read' } : t
+    const harnessArchived = t.archived === true
+    const colonyArchived = archivedSet.has(t.id)
+    const next = { ...t, harnessArchived, colonyArchived, archived: harnessArchived || colonyArchived }
+    return at ? { ...next, unread: t.lastActivityAt > at, readState: t.lastActivityAt > at ? 'unread' : 'read' } : next
   })
   list = threads
-  const archivedSet = new Set(state.archived)
   const hiddenSet = new Set(state.hiddenProjects || [])
 
   // Which threads the colony has met before. Walking out of the ship is meant to *mean*
@@ -1028,7 +1051,8 @@ function applyThreads(list) {
     if (!projectCounts.has(t.project)) projectCounts.set(t.project, { count: 0, workers: 0 })
     projectCounts.get(t.project)[t.parentId ? 'workers' : 'count']++
   }
-  const stats = colony.setThreads(visible, archivedSet, hiddenSet, known)
+  const roster = rankColonyRoster(visible.filter(t => !t.archived && !hiddenSet.has(t.project)), settings.get('maxAgents') || 100)
+  const stats = colony.setThreads(roster, archivedSet, hiddenSet, known)
   stats.conversations = visible.filter(t => !t.parentId).length
   stats.workers = visible.filter(t => !!t.parentId).length
   hud.setStats(stats)
@@ -1126,8 +1150,8 @@ function queueSave() {
       // another tab had written since this one loaded. Dropping it would leave this page
       // asserting a picture the file has already moved past, and the next save would fight.
       state = await saveState(state)
-    } catch {
-      /* the colony still runs; only the archive list is at risk, and it retries next time */
+    } catch (err) {
+      hud.toast(err?.message || 'Could not save Colony state; the previous saved state is unchanged', 'err')
     }
   }, 500)
 }
@@ -1142,6 +1166,7 @@ async function boot() {
     fetchState()
       .then((s) => {
         state = s
+        autoArchivePending = true
         // Before the first roster: zones come back to the ground they were on last time.
         colony.restoreLayout(state.plots)
         // And the settings, but only for a browser that has none of its own — an explicit
