@@ -40,6 +40,10 @@ const observation = thread => {
   return { ...data, canOpen: false, openCapabilities: {}, navigationReason: 'Embedded observation only' }
 }
 
+// ponytail: newest-N per source keeps the worker's 32 MiB inventory snapshot bounded as history grows;
+// ceiling is 1500 threads/source (older history is invisible in Colony), paginate the scan if that ever matters.
+export const MAX_THREADS_PER_SOURCE = 1500
+
 export function createEmbeddedScanner({ dataDir, sources, loadSource = loadEmbeddedSource, now = Date.now }) {
   validateSources(sources, loadSource === loadEmbeddedSource)
   const enabled = sources.filter(source => source.enabled).map(source => ({ ...source }))
@@ -63,7 +67,8 @@ export function createEmbeddedScanner({ dataDir, sources, loadSource = loadEmbed
         const diagnostic = await adapter.diagnostic?.({ nativeCapabilities: false })
         assertActive()
         if (diagnostic) throw new Error(String(diagnostic))
-        const stamped = rows.map(row => observation({ ...row, harness: id, harnessName: adapter.name }))
+        const recent = [...rows].sort((a, b) => (b?.lastActivityAt || 0) - (a?.lastActivityAt || 0)).slice(0, MAX_THREADS_PER_SOURCE)
+        const stamped = recent.map(row => observation({ ...row, harness: id, harnessName: adapter.name }))
         lastGood.set(id, stamped)
         return stamped
       } catch (error) {

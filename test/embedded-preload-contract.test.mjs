@@ -281,3 +281,20 @@ test('contextBridge Error property loss still rejects revoked cleanup and merges
     await fs.rm(dir, { recursive: true, force: true })
   }
 })
+
+test('preload request schemas match every method embedded-protocol accepts', async () => {
+  const protocol = await fs.readFile(new URL('../server/embedded-protocol.mjs', import.meta.url), 'utf8')
+  const schemasOf = text => JSON.parse(JSON.stringify(vm.runInNewContext(`(${text.match(/const schemas = (\{[\s\S]*?\n\})/)[1]})`)))
+  assert.deepEqual(schemasOf(source), schemasOf(protocol))
+})
+
+test('preload forwards action.run and rejects unknown action kinds', async () => {
+  const fixture = preload()
+  fixture.attach()
+  const pending = fixture.bridge.request('action.run', { kind: 'open', id: 'codex:thread-1' })
+  pending.catch(() => {})
+  await new Promise(resolve => setImmediate(resolve))
+  assert.ok(fixture.sent.find(message => message.method === 'action.run'))
+  await assert.rejects(fixture.bridge.request('action.run', { kind: 'delete', id: 'codex:thread-1' }), /invalid|action/i)
+  fixture.close()
+})

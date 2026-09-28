@@ -94,3 +94,15 @@ test('missing enabled source warns and preserves prior observations as stale', a
     assert.ok(result.warnings.some(warning => /hermes.*unavailable/i.test(warning)))
   })
 })
+
+test('embedded scanner keeps only the most recent threads per source', async () => {
+  const { MAX_THREADS_PER_SOURCE } = scannerModule
+  const rows = Array.from({ length: MAX_THREADS_PER_SOURCE + 5 }, (_, index) => ({ id: `hermes:t${index}`, lastActivityAt: index }))
+  await fixture([{ id: 'hermes', enabled: true }], async () => ({ id: 'hermes', name: 'Hermes', detect: () => true, scanThreads: () => rows }),
+    async ({ scanner }) => {
+      const { threads } = await scanner.scan()
+      assert.equal(threads.length, MAX_THREADS_PER_SOURCE)
+      assert.ok(!threads.some(thread => ['hermes:t0', 'hermes:t4'].includes(thread.id)), 'oldest threads are dropped')
+      assert.ok(threads.some(thread => thread.id === `hermes:t${MAX_THREADS_PER_SOURCE + 4}`))
+    })
+})
