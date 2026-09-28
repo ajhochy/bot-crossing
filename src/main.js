@@ -17,16 +17,21 @@ import { shorelinePoints } from './world/planet.js'
 import { shipPosition } from './world/plots.js'
 import {
   fetchThreads,
+  fetchCheckout,
   fetchState,
   saveState,
   openThread,
   newSession,
   revealFolder,
+  embeddedBridge,
+  isEmbedded,
 } from './game/api.js'
+import { applyEmbeddedQuality, createEmbeddedHostController, createEmbeddedVisibilityScheduler, filterEmbeddedThreads } from './game/embedded-api.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
 import { groupProjects, migrateProjectState, migrateSessionState, filterSessions, projectCategory, projectOverview } from './game/projects.js'
 import { mergeState } from './game/merge-state.js'
+import { archiveColonyThread, autoArchiveBatch, rankColonyRoster, restoreColonyThread } from './game/auto-archive.js'
 
 /**
  * Boot and the outer game loop.
@@ -39,6 +44,7 @@ import { mergeState } from './game/merge-state.js'
 
 const POLL_MS = 15000
 const app = document.getElementById('app')
+if (isEmbedded) document.documentElement.classList.add('colony-embedded')
 
 app.insertAdjacentHTML(
   'beforeend',
@@ -63,7 +69,8 @@ engine.setPlanetGrade(PLANETS[settings.get('planet')]?.grade)
 const rig = new CameraRig(engine.camera, engine.canvas, settings)
 const colony = new Colony(engine.scene, settings, engine.camera, engine.renderer)
 
-let state = { archived: [], archivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {} }
+let state = { archived: [], archivedAt: {}, unarchivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {} }
+let autoArchivePending = false
 let threads = []
 let sourceThreads = []
 let projectInventory = []
@@ -80,6 +87,10 @@ let selectedProject = null
 let hoverId = null
 let statusCursor = 0
 let pendingSave = 0
+let hostHidden = false
+let embeddedHost = null
+let visibilityScheduler = null
+let embeddedFilters = null
 const hoverGround = new THREE.Vector3()
 
 // ── actions the HUD can trigger ────────────────────────────────────────────────────────
@@ -184,7 +195,7 @@ const actions = {
     selectedCheckout = id
     filters.checkout = id
     syncProject()
-    if (id) fetch(`/api/checkout?id=${encodeURIComponent(id)}`).then(r => r.json()).then(result => {
+    if (id) fetchCheckout(id).then(result => {
       if (result.error) throw new Error(result.error)
       for (const p of projectInventory) p.checkouts = p.checkouts.map(c => c.id === id ? { ...c, ...result.checkout } : c)
       applyThreads(sourceThreads)
@@ -245,13 +256,17 @@ const actions = {
     catch { hud.toast(copyFallback(path) ? 'Path copied' : 'Could not reach clipboard') }
   },
   revealPath: async (path) => {
-    try { await revealFolder(path) } catch (err) { hud.toast(err.message, 'err') }
+    const target = isEmbedded ? threads.find(thread => thread.cwd === path || thread.checkout?.path === path) : path
+    try { await revealFolder(target) } catch (err) { hud.toast(err.message, 'err') }
   },
   revealProject: async () => {
     const folder = selectedProject && pathForProject(selectedProject)
     if (!folder) return
     try {
-      await revealFolder(folder)
+      const target = isEmbedded
+        ? threads.find(thread => thread.id === selectedId) || threads.find(thread => thread.project === selectedProject)
+        : folder
+      await revealFolder(target)
     } catch (err) {
       hud.toast(err.message || 'Could not open that folder', 'err')
     }
@@ -332,13 +347,21 @@ const actions = {
   // `reconcileArchived` in server/api.mjs for why that stopped being worth doing.
   archiveThread: () => {
     const thread = threads.find((t) => t.id === selectedId)
-    if (!thread) return
+    if (!thread || thread.harnessArchived) return
     const foldedBefore = new Set(colony.dormantProjects || [])
-    state.archived = [...new Set([...state.archived, thread.id])]
-    state.archivedAt = { ...state.archivedAt, [thread.id]: Date.now() }
+    const restoring = thread.colonyArchived === true
+    const next = restoring
+      ? restoreColonyThread(state, thread, { now: Date.now() })
+      : archiveColonyThread(state, thread, { now: Date.now() })
+    if (next === state) return
+    state = next
     queueSave()
     select(null, {})
-    applyThreads(threads)
+    applyThreads(sourceThreads)
+    if (restoring) {
+      hud.toast('Restored to Colony — active for at least 48 hours')
+      return
+    }
     // Retiring the last thread anybody has touched in a repo makes every thread left in it
     // dormant, and the whole zone folds away — sixty astronauts can leave the map on one
     // click. That is the setting working, but silently it reads as the colony breaking, so
@@ -416,6 +439,7 @@ function select(id, { fly = false } = {}) {
     rig.focus(new THREE.Vector3(agent.pos.x, 0, agent.pos.z), { distance: Math.min(rig.desiredDistance, 26) })
   }
   rig.setFollow(settings.get('followSelected') ? agent : null)
+  if (isEmbedded && !fly) void embeddedHost?.sceneSelected(id).catch(() => {})
 }
 
 /** Open a zone's sidebar. Any selected astronaut from a different zone lets go. */
@@ -909,6 +933,7 @@ window.addEventListener('keydown', (e) => {
       break
     case 'c':
     case 'C':
+      if (isEmbedded) break
       if (selectedProject) actions.newConversation()
       break
     case '?':
@@ -967,7 +992,8 @@ function applyThreads(list) {
     return
   }
   if (list !== threads) sourceThreads = list
-  const grouped = groupProjects(withErrands(sourceThreads), projectInventory, state.projectOverrides, state.projectAliases)
+  const embeddedInput = embeddedFilters ? filterEmbeddedThreads(sourceThreads, embeddedFilters, statusFor) : sourceThreads
+  const grouped = groupProjects(withErrands(embeddedInput), projectInventory, state.projectOverrides, state.projectAliases)
   list = grouped.threads
   const byId = new Map(list.map(t => [t.id, t]))
   list = list.map(t => t.parentId ? { ...t, parentTitle: byId.get(t.parentId)?.title, parentArchived: byId.get(t.parentId)?.archived } : t)
@@ -979,15 +1005,28 @@ function applyThreads(list) {
     queueSave()
   }
 
+  if (autoArchivePending) {
+    autoArchivePending = false
+    const archived = autoArchiveBatch(state, list, { now: Date.now() })
+    if (archived.state !== state) {
+      state = archived.state
+      queueSave()
+      hud.toast(archived.notice)
+    }
+  }
+
   // A thread you have said you looked at stops counting as unread until it moves on again.
   // Done here rather than in `statusFor` so the card, the badge and the astronaut all agree.
   const viewed = state.viewedAt || {}
+  const archivedSet = new Set(state.archived)
   threads = list.map((t) => {
     const at = viewed[t.id]
-    return at ? { ...t, unread: t.lastActivityAt > at, readState: t.lastActivityAt > at ? 'unread' : 'read' } : t
+    const harnessArchived = t.archived === true
+    const colonyArchived = archivedSet.has(t.id)
+    const next = { ...t, harnessArchived, colonyArchived, archived: harnessArchived || colonyArchived }
+    return at ? { ...next, unread: t.lastActivityAt > at, readState: t.lastActivityAt > at ? 'unread' : 'read' } : next
   })
   list = threads
-  const archivedSet = new Set(state.archived)
   const hiddenSet = new Set(state.hiddenProjects || [])
 
   // Which threads the colony has met before. Walking out of the ship is meant to *mean*
@@ -1012,7 +1051,8 @@ function applyThreads(list) {
     if (!projectCounts.has(t.project)) projectCounts.set(t.project, { count: 0, workers: 0 })
     projectCounts.get(t.project)[t.parentId ? 'workers' : 'count']++
   }
-  const stats = colony.setThreads(visible, archivedSet, hiddenSet, known)
+  const roster = rankColonyRoster(visible.filter(t => !t.archived && !hiddenSet.has(t.project)), settings.get('maxAgents') || 100)
+  const stats = colony.setThreads(roster, archivedSet, hiddenSet, known)
   stats.conversations = visible.filter(t => !t.parentId).length
   stats.workers = visible.filter(t => !!t.parentId).length
   hud.setStats(stats)
@@ -1079,7 +1119,7 @@ function chimeForNewWaiting(list, archivedSet, hiddenSet) {
 
 let polling = false
 async function poll() {
-  if (polling) return
+  if (polling || document.hidden || hostHidden) return
   polling = true
   try {
     const res = await fetchThreads()
@@ -1110,8 +1150,8 @@ function queueSave() {
       // another tab had written since this one loaded. Dropping it would leave this page
       // asserting a picture the file has already moved past, and the next save would fight.
       state = await saveState(state)
-    } catch {
-      /* the colony still runs; only the archive list is at risk, and it retries next time */
+    } catch (err) {
+      hud.toast(err?.message || 'Could not save Colony state; the previous saved state is unchanged', 'err')
     }
   }, 500)
 }
@@ -1126,6 +1166,7 @@ async function boot() {
     fetchState()
       .then((s) => {
         state = s
+        autoArchivePending = true
         // Before the first roster: zones come back to the ground they were on last time.
         colony.restoreLayout(state.plots)
         // And the settings, but only for a browser that has none of its own — an explicit
@@ -1150,11 +1191,12 @@ async function boot() {
   if (!kitError) colony.onAssetsReady()
 
   await poll()
-  setInterval(poll, POLL_MS)
-  window.addEventListener('focus', poll)
+  visibilityScheduler = createEmbeddedVisibilityScheduler({ poll, isDocumentHidden: () => document.hidden, period: POLL_MS })
+  visibilityScheduler.setHostHidden(hostHidden)
+  window.addEventListener('focus', () => { if (!hostHidden) poll() })
   // A tab that was hidden for an hour should catch up the moment it comes back.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) poll()
+    visibilityScheduler.documentVisibilityChanged()
   })
 
   if (!localStorage.getItem('botcrossing.seen-help')) {
@@ -1163,6 +1205,33 @@ async function boot() {
   } else {
     hud.hint('Drag to move · click a bot · H hides everything', 5200)
   }
+}
+
+if (isEmbedded) {
+  embeddedHost = createEmbeddedHostController(embeddedBridge, {
+    select: (threadId, options) => select(threadId, options),
+    filter: payload => {
+      embeddedFilters = payload
+      filters = { ...filters, query: '', harness: '', status: '', includeHistorical: payload.includeHistorical ?? filters.includeHistorical }
+      applyThreads(sourceThreads)
+    },
+    view: payload => {
+      if (payload.quality) applyEmbeddedQuality(settings, payload.quality)
+      if (payload.sound !== undefined) settings.set('sound', payload.sound)
+      if (payload.motion) settings.set('reducedMotion', payload.motion === 'reduced')
+      if (payload.resetCamera) actions.resetView()
+      if (payload.focusSelection && selectedId) select(selectedId, { fly: true })
+    },
+    visibility: ({ hidden }) => {
+      const wasHidden = hostHidden
+      hostHidden = hidden
+      visibilityScheduler?.setHostHidden(hidden)
+      engine.setHostHidden(hidden)
+      ambience.setHostHidden(hidden)
+      if (wasHidden && !hidden) void poll()
+    },
+  })
+  engine.canvas.addEventListener('webglcontextlost', () => { void embeddedHost.webglLost().catch(() => {}) })
 }
 
 // ── settings plumbing ─────────────────────────────────────────────────────────────────

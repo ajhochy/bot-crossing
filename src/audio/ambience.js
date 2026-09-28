@@ -68,6 +68,7 @@ export class Ambience {
 
     this._enabled = this._flag('sound', true)
     this._visible = typeof document === 'undefined' ? true : !document.hidden
+    this._hostHidden = false
     this._planet = null
     /** The current bed group, and the ones on their way out. */
     this._beds = null
@@ -175,6 +176,16 @@ export class Ambience {
     } else {
       this._dropGestureListeners()
     }
+  }
+
+  setHostHidden(hidden) {
+    this._hostHidden = Boolean(hidden)
+    this._applyMute()
+    if (!this.ctx) return
+    try {
+      const operation = this._hostHidden ? this.ctx.suspend?.() : (this._enabled ? this.ctx.resume?.() : null)
+      operation?.catch?.(() => {})
+    } catch {}
   }
 
   get ready() {
@@ -400,7 +411,7 @@ export class Ambience {
 
   _applyMute() {
     if (!this.mute) return
-    const target = this._enabled && this._visible ? 1 : 0
+    const target = this._enabled && this._visible && !this._hostHidden ? 1 : 0
     this.mute.gain.setTargetAtTime(target, this.ctx.currentTime, 0.12)
   }
 

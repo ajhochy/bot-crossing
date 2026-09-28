@@ -97,6 +97,16 @@ function mergeMap(base, local, remote) {
   return out
 }
 
+function mergeNewestMap(base, local, remote) {
+  const merged = mergeMap(base, local, remote)
+  for (const key of new Set([...Object.keys(asObject(local)), ...Object.keys(asObject(remote))])) {
+    const localValue = Number(asObject(local)[key])
+    const remoteValue = Number(asObject(remote)[key])
+    if (Number.isFinite(localValue) && Number.isFinite(remoteValue)) merged[key] = Math.max(localValue, remoteValue)
+  }
+  return merged
+}
+
 /**
  * Merge one colony state, field by field.
  *
@@ -117,10 +127,21 @@ export function mergeState(base, local, remote) {
   const b = base || {}
   const l = local || {}
   const r = remote || {}
+  // Opaque future fields use whole-value three-way resolution. An unchanged local
+  // value keeps remote changes; a changed local value (including deletion) wins
+  // whole. Do not guess how an unfamiliar nested schema should be combined.
+  const known = new Set(['version', 'updatedAt', 'baseUpdatedAt', 'archived', 'archivedAt', 'unarchivedAt',
+    'opened', 'plots', 'seen', 'hiddenProjects', 'viewedAt', 'projectOverrides',
+    'projectAliases', 'projectMigrations', 'sessionMigrations', 'settings'])
+  const opaque = Object.fromEntries([...new Set([...Object.keys(r), ...Object.keys(l)])]
+    .filter(key => !known.has(key) && !(Object.hasOwn(b, key) && !Object.hasOwn(l, key)))
+    .map(key => [key, Object.hasOwn(l, key) && (!Object.hasOwn(b, key) || !sameValue(b[key], l[key])) ? l[key] : r[key]]))
   return {
+    ...opaque,
     version: r.version ?? l.version ?? 2,
     archived: mergeSet(b.archived, l.archived, r.archived),
     archivedAt: mergeMap(b.archivedAt, l.archivedAt, r.archivedAt),
+    unarchivedAt: mergeNewestMap(b.unarchivedAt, l.unarchivedAt, r.unarchivedAt),
     opened: mergeSet(b.opened, l.opened, r.opened),
     plots: mergeMap(b.plots, l.plots, r.plots),
     seen: mergeMap(b.seen, l.seen, r.seen),

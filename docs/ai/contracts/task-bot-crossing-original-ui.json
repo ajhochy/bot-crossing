@@ -1,0 +1,41 @@
+{
+  "issue": "task-bot-crossing-original-ui",
+  "date": "2026-09-26",
+  "test_command": "node --test test/embedded-host-intents.test.mjs test/embedded-renderer-transport.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-bot-crossing-original-ui-c1",
+      "text": "Always attach the HUD, embedded or not; delete the html.colony-embedded .hud hide rule.",
+      "mode": "integration",
+      "test": "test/embedded-host-intents.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-c2",
+      "text": "In embedded mode route openThread and revealFolder through the bridge as a new scene→host request using the inventory thread id.",
+      "mode": "integration",
+      "test": "test/embedded-renderer-transport.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-c3",
+      "text": "newSession / C key has no Rhythm equivalent: in embedded, make the HUD control visibly unavailable (disabled with a reason/title) instead of a button that errors.",
+      "mode": "ui",
+      "test": "test/embedded-host-intents.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bot-crossing-original-ui-c4",
+      "text": "Standalone and embedded rendered layouts match; only Bot Crossing menu/panel styling differs.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Standalone and embedded 1440x900 screenshots were inspected; HUD/scene positions match and only HUD surfaces differ."
+    }
+  ],
+  "not_tested": []
+}

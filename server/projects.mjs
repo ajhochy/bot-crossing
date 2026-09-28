@@ -31,6 +31,7 @@ export function createProjectResolver({
   statusTtlMs = 30000,
   statusLimit = 12,
   gitConcurrency = 4,
+  gitEnabled = true,
 } = {}) {
   const paths = new Map()
   const repos = new Map()
@@ -65,16 +66,19 @@ export function createProjectResolver({
     }
   }
 
-  const git = async (cwd, args) => withGitSlot(async () => {
-    metrics.gitCommands++
-    if (args[0] === 'status') metrics.statusCommands++
-    // Optional locks disabled: even status may otherwise refresh another process's index.
-    const { stdout } = await exec('git', ['--no-optional-locks', '-C', cwd, ...args], {
-      encoding: 'utf8', timeout: 5000, maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+  const git = async (cwd, args) => {
+    if (!gitEnabled) throw new Error('Git commands disabled for embedded observation')
+    return withGitSlot(async () => {
+      metrics.gitCommands++
+      if (args[0] === 'status') metrics.statusCommands++
+      // Optional locks disabled: even status may otherwise refresh another process's index.
+      const { stdout } = await exec('git', ['--no-optional-locks', '-C', cwd, ...args], {
+        encoding: 'utf8', timeout: 5000, maxBuffer: 4 * 1024 * 1024,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
     })
     return stdout
-  })
+    })
+  }
 
   const rememberCheckout = (checkout) => {
     if (!checkout?.id) return checkout

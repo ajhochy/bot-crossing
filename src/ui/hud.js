@@ -76,6 +76,10 @@ export class Hud {
     this._buildStats()
     this._buildSettings()
     this._buildAvatar()
+    if (Object.hasOwn(globalThis, 'colonyEmbedded')) {
+      this.$('#btn-new-session').disabled = true
+      this.$('#btn-new-session').title = 'New conversations are unavailable in embedded Rhythm'
+    }
     this._wire()
     this.syncSettings()
     // Read layout when panels resize/change, never in the animation loop.
@@ -677,7 +681,7 @@ export class Hud {
     path.textContent = project.path || 'Folder unknown'
     path.title = project.path || ''
     // Nothing to open a new thread in, and nothing to reveal, without a folder on disk.
-    this.$('#btn-new-session').disabled = !project.path || !project.pathAvailable
+    this.$('#btn-new-session').disabled = Object.hasOwn(globalThis, 'colonyEmbedded') || !project.path || !project.pathAvailable
     this.$('#btn-reveal').disabled = !project.path || !project.pathAvailable
     this.$('#btn-copy-path').disabled = !project.path
 
@@ -866,6 +870,12 @@ export class Hud {
     // crowd the two that are always worth having, and "Viewed" on a thread that is not asking
     // for anything is a control with no effect.
     this.$('#btn-viewed').hidden = thread.unread === false
+    const archive = this.$('#btn-archive')
+    archive.hidden = thread.harnessArchived === true
+    archive.innerHTML = `${ICON.archive} ${thread.colonyArchived ? 'Restore' : 'Archive'}`
+    archive.title = thread.colonyArchived
+      ? 'Restore to Colony — keeps this task active for at least 48 hours'
+      : 'Archive from Colony — this bot walks back to the ship'
     // Expansion and responsive resizing also update this through ResizeObserver.
     this._cardSize = { w: card.offsetWidth, h: card.offsetHeight }
   }
@@ -1338,7 +1348,7 @@ const TEMPLATE = `
         <div class="k"><span>Next needing you</span><kbd>N</kbd></div>
         <div class="k"><span>Open thread</span><kbd>Enter</kbd></div>
         <div class="k"><span>Mark viewed</span><kbd>V</kbd></div>
-        <div class="k"><span>Archive</span><kbd>A</kbd></div>
+            <div class="k"><span>Archive / restore</span><kbd>A</kbd></div>
         <div class="k"><span>New conversation</span><kbd>C</kbd></div>
         <div class="k"><span>Orbit mode</span><kbd>O</kbd></div>
         <div class="k"><span>Change planet</span><kbd>Tab</kbd></div>

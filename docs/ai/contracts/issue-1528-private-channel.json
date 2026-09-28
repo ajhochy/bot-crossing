@@ -1,0 +1,53 @@
+{
+  "issue": 1528,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1528-c1",
+      "text": "**COL-03-AC1:** With Colony disabled, normal app startup performs zero harness reads and creates zero Colony children. Ten concurrent enable/open events create one scanner; repeated tab use does not create another.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1528-c2",
+      "text": "**COL-03-AC2:** With live API/engine sentinel processes already running, scanner start, crash, retry, disable and app quit leave their PIDs/listeners unchanged and never bind/reclaim their ports.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1528-c3",
+      "text": "**COL-03-AC3:** Removing the packaged Node/scanner payload produces a clear unavailable state with no attempt to run system Node or a checkout; a version mismatch fails the handshake before scanning.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    },
+    {
+      "criterion_id": "issue-1528-c4",
+      "text": "**COL-03-AC4:** A disabled source is never opened; missing, locked or malformed source fixtures are diagnosed individually while healthy harness tasks remain visible. Worker crash loops stop at the documented retry bound.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Native receiver, packaged worker and rendering remain unimplemented in this planning-only slice. See /private/tmp/colony-private-channel-plan.md for exact required proof."
+    }
+  ],
+  "stack": "unknown",
+  "not_tested": [
+    "issue-1528-c1",
+    "issue-1528-c2",
+    "issue-1528-c3",
+    "issue-1528-c4"
+  ],
+  "scope": "Planning-only supporting evidence, not replacement for issue-wide contract. Node built-in JavaScript tests; canonical schema lacks JavaScript enum.",
+  "supplemental_tests": {
+    "files": [
+      "test/embedded-renderer-transport.test.mjs",
+      "test/embedded-protocol-contract.test.mjs",
+      "test/embedded-inventory-collections.test.mjs"
+    ],
+    "command": "node --test test/embedded-renderer-transport.test.mjs test/embedded-protocol-contract.test.mjs",
+    "status": "Source transport slice implemented; final full-suite result recorded in run report. Native issue criteria remain UNVERIFIED.",
+    "log": "/private/tmp/colony-channel-slice1-full-test-final.log",
+    "limits": "Transport fixtures and actual scene client/service behavior only; no actual Electron frame or packaged worker proof."
+  }
+}

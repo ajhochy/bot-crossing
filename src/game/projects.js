@@ -66,7 +66,7 @@ export function migrateSessionState(state, threads) {
     for (const key of ['archived', 'opened']) {
       if (next[key]?.includes(alias) && !next[key].includes(id)) next = { ...next, [key]: [...next[key], id] }
     }
-    for (const key of ['archivedAt', 'viewedAt', 'seen']) {
+    for (const key of ['archivedAt', 'unarchivedAt', 'viewedAt', 'seen']) {
       if (next[key]?.[alias] && !next[key][id]) next = { ...next, [key]: { ...next[key], [id]: next[key][alias] } }
     }
     // The old key is a backup, not an instruction to re-archive after a later user edit.

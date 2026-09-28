@@ -1,0 +1,47 @@
+{
+  "issue": 1526,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1526-c1",
+      "text": "A clean upstream checkout at the pinned revision runs `build:rhythm-embedded` and emits an artifact whose `manifest.json` names that exact revision, the agreed `electronMajor`, and the three required entry points; no adjacent Rhythm checkout is needed.",
+      "mode": "integration",
+      "test_file": "test/rhythm-embedded-build.test.mjs",
+      "test_id": "issue-1526-c1: a clean upstream checkout emits the pinned revision, Electron major, and three entry points without Rhythm",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1526-c2",
+      "text": "Running the builder twice on the same pinned inputs produces identical `integrity` digests, or the nondeterministic fields are explicitly documented and excluded from the seal.",
+      "mode": "integration",
+      "test_file": "test/rhythm-embedded-build.test.mjs",
+      "test_id": "issue-1526-c2: identical pinned inputs reproduce identical integrity digests",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1526-c3",
+      "text": "Building from a dirty working tree either fails or sets `dirty: true`; every file in the emitted tree appears in `integrity`, and the tree contains no symlink, no absolute path and no excluded developer/user data.",
+      "mode": "integration",
+      "test_file": "test/rhythm-embedded-build.test.mjs",
+      "test_id": "issue-1526-c3: dirty sources cannot be sealed clean and emitted trees are sealed, contained, and private-data free",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1526-c4",
+      "text": "The artifact contains the applicable MIT/CC0/Apache-2.0 notices for the shipped inventory, covered by `integrity` so they cannot drift from the code; a missing or unlicensed asset fails the build. Asset size baseline is recorded for later package comparison.",
+      "mode": "integration",
+      "test_file": "test/rhythm-embedded-build.test.mjs",
+      "test_id": "issue-1526-c4: shipped assets have an integrity-covered license inventory and recorded size baseline",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1526-c5",
+      "text": "The upstream adapter/state test suite still passes at the pinned revision, preserving task IDs, parent/worker relationships, repository/checkout grouping and local archive/viewed state; before/after source-store evidence shows no harness writes.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: run the adapter/state suite at the exact pinned source revision and capture before/after evidence using synthetic disposable stores only. This contract run must not inspect or modify real user harness stores."
+    }
+  ],
+  "stack": "javascript",
+  "not_tested": ["issue-1526-c5"]
+}

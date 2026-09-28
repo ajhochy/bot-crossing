@@ -53,6 +53,7 @@ export class Engine {
     this.elapsed = 0
     this.updaters = []
     this.running = false
+    this.hostHidden = false
 
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(settings.get('fov'), 1, 0.5, 900)
@@ -121,7 +122,7 @@ export class Engine {
     // rather than waiting for the next animation frame is what stops that moment being a
     // black flash.
     this._onWake = () => {
-      if (document.hidden || !this.running) return
+      if (document.hidden || this.hostHidden || !this.running) return
       this.resize()
       this.renderFrame()
     }
@@ -136,6 +137,13 @@ export class Engine {
   add(updater) {
     this.updaters.push(updater)
     return updater
+  }
+
+  setHostHidden(hidden) {
+    const wasHidden = this.hostHidden
+    this.hostHidden = Boolean(hidden)
+    if (this.running) this.renderer.setAnimationLoop(this.hostHidden ? null : this._boundLoop)
+    if (wasHidden && !this.hostHidden && this.running) this._onWake?.()
   }
 
   /** Rebuilds only what a settings change actually invalidated. */
@@ -361,7 +369,7 @@ export class Engine {
     if (this.running) return
     this.running = true
     this.timer.reset()
-    this.renderer.setAnimationLoop(this._boundLoop)
+    this.renderer.setAnimationLoop(this.hostHidden ? null : this._boundLoop)
   }
 
   stop() {

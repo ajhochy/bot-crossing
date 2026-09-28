@@ -1,0 +1,55 @@
+{
+  "issue": 1527,
+  "scope": "private-service-contract",
+  "generated": "2026-09-24",
+  "public_seam": "server/embedded-service.mjs exports createEmbeddedService({ dataDir, scan }) and returns an instance with invoke(method, payload). The injected scan adapter returns normalized synthetic inventory records. The service owns all scan generations, profile state, and pending state transfers per instance.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1527-service-c1",
+      "text": "Import and construction are inert; construction never scans or listens, never mutates BOT_CROSSING_DATA, and separate service instances retain separate profile-scoped state.",
+      "mode": "unit",
+      "test_file": "test/embedded-service.test.mjs",
+      "test_id": "service construction is inert and owns profile state without process-global data paths",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1527-service-c2",
+      "text": "A synthetic scan runs only after an explicit inventory request; session creation, terminal resume, and unknown methods are rejected without scanning or state writes.",
+      "mode": "unit",
+      "test_file": "test/embedded-service.test.mjs",
+      "test_id": "only an explicit inventory request scans; unsupported privileged operations are refused",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1527-service-c3",
+      "text": "A 15,000-record snapshot is served in at most 250-record pages under 1 MiB, with stable generation/cursors; cancellation invalidates the generation.",
+      "mode": "unit",
+      "test_file": "test/embedded-service.test.mjs",
+      "test_id": "15,000 records use bounded pages with stable generation and cursors; cancellation ends the snapshot",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1527-service-c4",
+      "text": "State larger than 64 KiB round-trips through bounded chunks; an incomplete/interrupted transfer commits no state and leaves the previous saved state intact.",
+      "mode": "unit",
+      "test_file": "test/embedded-service.test.mjs",
+      "test_id": "chunked state transfer round-trips archives over 64 KiB and interrupted transfer commits nothing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1527-service-c5",
+      "text": "The standalone HTTP adapter and upstream API behavior remain unchanged and pass their existing tests.",
+      "mode": "integration",
+      "status": "pending",
+      "reason": "This contract adds no HTTP host and does not replace existing HTTP/API tests. Run the upstream API suite after shared service extraction."
+    },
+    {
+      "criterion_id": "issue-1527-service-c6",
+      "text": "Private child IPC framing, sender/document-generation validation, hostile frame rejection, protocol negotiation, and native Electron channel revocation are verified on the pinned Electron runtime.",
+      "mode": "native",
+      "status": "pending",
+      "reason": "Outside this synthetic service contract; requires the Rhythm receiver and pinned Electron host."
+    }
+  ],
+  "not_tested": ["issue-1527-service-c5", "issue-1527-service-c6", "COL-03 process ownership and packaged worker criteria"]
+}

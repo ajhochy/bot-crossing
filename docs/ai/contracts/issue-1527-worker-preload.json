@@ -1,0 +1,72 @@
+{
+  "issue": 1527,
+  "generated": "2026-09-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1527-c1",
+      "text": "**COL-02-AC1:** Each refusal case above is covered by a direct unit test and produces a distinct actionable error with zero import, zero native action and zero state write. Corrupting one byte of one artifact file fails the load.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Supporting upstream worker, service, protocol and VM preload checks pass. Actual pinned Electron frame authorization, rendered assets/tab and packaged lifecycle acceptance remain unverified in the separate Rhythm receiver slice."
+    },
+    {
+      "criterion_id": "issue-1527-c2",
+      "text": "**COL-02-AC2:** With `RHYTHM_COLONY_ARTIFACT_DIR` unset or pointing at a missing, dirty, wrong-commit or wrong-`electronMajor` artifact, the Colony tab reports why and stops; no alternative source is loaded and no partial UI is shown.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Supporting upstream worker, service, protocol and VM preload checks pass. Actual pinned Electron frame authorization, rendered assets/tab and packaged lifecycle acceptance remain unverified in the separate Rhythm receiver slice."
+    },
+    {
+      "criterion_id": "issue-1527-c3",
+      "text": "**COL-02-AC3:** In real pinned Electron, artifact-served JS/GLB assets load and a synthetic scan plus state round-trip works through private child IPC; no Colony TCP listener is created and upstream standalone HTTP behavior still passes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Supporting upstream worker, service, protocol and VM preload checks pass. Actual pinned Electron frame authorization, rendered assets/tab and packaged lifecycle acceptance remain unverified in the separate Rhythm receiver slice."
+    },
+    {
+      "criterion_id": "issue-1527-c4",
+      "text": "**COL-02-AC4:** A sibling/foreign frame, stale/reloaded document, unknown method, malformed/oversize message and unsupported protocol version each produce zero native actions and zero state writes.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Supporting upstream worker, service, protocol and VM preload checks pass. Actual pinned Electron frame authorization, rendered assets/tab and packaged lifecycle acceptance remain unverified in the separate Rhythm receiver slice."
+    },
+    {
+      "criterion_id": "issue-1527-c5",
+      "text": "**COL-02-AC5:** The scene cannot access Rhythm bearer tokens, parent DOM, arbitrary URLs, filesystem APIs or process APIs; leaving/disabling the feature revokes the previous channel.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Supporting upstream worker, service, protocol and VM preload checks pass. Actual pinned Electron frame authorization, rendered assets/tab and packaged lifecycle acceptance remain unverified in the separate Rhythm receiver slice."
+    },
+    {
+      "criterion_id": "issue-1527-c6",
+      "text": "**COL-02-AC6:** A 15,000-record snapshot is paged with stable generation/cursors and cancellation; a large archive beyond 64 KiB round-trips unchanged, while an interrupted state transfer commits nothing.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Supporting upstream worker, service, protocol and VM preload checks pass. Actual pinned Electron frame authorization, rendered assets/tab and packaged lifecycle acceptance remain unverified in the separate Rhythm receiver slice."
+    }
+  ],
+  "stack": "unknown",
+  "not_tested": [
+    "issue-1527-c1",
+    "issue-1527-c2",
+    "issue-1527-c3",
+    "issue-1527-c4",
+    "issue-1527-c5",
+    "issue-1527-c6"
+  ],
+  "scope": "Supporting upstream worker/preload evidence; no issue-wide acceptance claim. Node built-in JavaScript tests; canonical schema lacks JavaScript enum.",
+  "supplemental_tests": {
+    "files": [
+      "test/embedded-scanner-contract.test.mjs",
+      "test/embedded-worker-contract.test.mjs",
+      "test/embedded-preload-contract.test.mjs",
+      "test/embedded-worker-artifact-contract.test.mjs"
+    ],
+    "command": "node --test test/embedded-scanner-contract.test.mjs test/embedded-preload-contract.test.mjs test/embedded-worker-contract.test.mjs test/embedded-worker-artifact-contract.test.mjs",
+    "red": "18 failed before implementation",
+    "result": "25 worker/scanner/preload/artifact checks pass; 45/45 focused including adjacent protocol/renderer/collision checks after review fixes",
+    "full_suite": "Before bounded review fixes: npm test 256 passed; npm run build exit 0. Final focused regression run 45 passed; no second broad run per parent test budget.",
+    "plan": "docs/ai/plans/2026-09-24-colony-worker-preload.md",
+    "review_red": "Five review failures plus Error property-loss regression reproduced before repair."
+  }
+}

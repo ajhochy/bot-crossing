@@ -34,6 +34,7 @@
   "scripts": {
     "dev": "npm run assets --silent && vite",
     "build": "npm run assets --silent && vite build",
+    "build:rhythm-embedded": "node tools/build-rhythm-embedded.mjs",
     "start": "vite build && node server/serve.mjs",
     "serve": "node server/serve.mjs",
     "assets": "node tools/build-assets.mjs",
