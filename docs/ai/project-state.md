@@ -82,3 +82,10 @@ The packaged Colony integration and native UI/menu plan is tracked separately in
 - Concerns: actual Electron frame authorization, pinned/packaged worker supervision, rendered tab and complete native smoke remain unverified; no issue-wide PASS.
 
 - Worker slice review repair: initial scene calls await the bounded private handshake; fixed capabilities and ready event; missing-source stale warnings; exact coded errors survive custom Error property loss. Final focused 45/45 passes after the earlier full 256/build receipt. Native receiver/tab remains next.
+
+## Consolidation 2026-09-29
+- Branch: `mega/2026-09-29-consolidation` (from `origin/main` 011ace7). PR: PR_URL_PLACEHOLDER. Issues are disabled on this fork, so the tracking content lives in the PR body.
+- Folded: `origin/feat/hosted` (tip 7bf8467, 6 commits by giuseppe-station: hosted build that scans harness folders from the browser, crew panel). Conflicts in `src/game/api.js`, `src/main.js`, `src/ui/styles.css` resolved by keeping main's embedded transport and project/checkout inventory and gating all hosted behavior behind `HOSTED` (`VITE_HOSTED=1`). Not verified in a browser.
+- Dropped (already in `origin/main`, empty diff): local + origin `codex/auto-archive-48h` (a26ef03), `codex/codex-session-graph` (54f9391), `codex/colony-embedded-action-run` (2bb12c4), `codex/colony-embedded-artifact` (local 4e6ed18, origin 2bb12c4), `codex/colony-host-protocol` (a7e4560, local only), `codex/overview-and-thread-opening` (0f3e79d), `codex/project-checkout-identity` (91a8b19), `codex/rhythm-session-graph` (81648b1), `origin/claude/new-environments-ambient-audio-707ce2` (6344799), `origin/claude/pr-review-round` (59dab43). Bundle: `~/Documents/.consolidation-backups/bot-crossing-2026-09-29.bundle`.
+- In-flight worktrees: none (no live process has a cwd in any `/private/tmp/bot-crossing-*` worktree).
+- Cleanup script (not yet run): `~/Documents/.consolidation-backups/cleanup/bot-crossing-2026-09-29-cleanup.sh`.
