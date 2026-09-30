@@ -9,8 +9,27 @@ export const isEmbedded = embeddedMode
 let transport
 const embedded = () => transport ||= createEmbeddedTransport(bridge)
 
+/**
+ * Hosted or local. Local is `npm run dev`: the API lives in the Vite server on this machine
+ * and does the scanning itself. Hosted is the same page served by a workspace: the scanning
+ * happens in the page (see `src/scan/`), the server only keeps the colony file and a snapshot,
+ * and every request carries the workspace's sign-in cookie.
+ */
+export const HOSTED = import.meta.env.VITE_HOSTED === '1'
+const API = import.meta.env.VITE_API_BASE || '/api'
+
+/** Where the workspace's sign-in lives; it comes back to this page afterwards. */
+function signInRedirect() {
+  const next = window.location.pathname + window.location.search
+  window.location.assign(`/?next=${encodeURIComponent(next)}`)
+}
+
 async function req(url, options) {
-  const res = await fetch(url, options)
+  const res = await fetch(url, { credentials: 'same-origin', ...options })
+  if (HOSTED && res.status === 401) {
+    signInRedirect()
+    throw new Error('Sign in to see your planet')
+  }
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body
@@ -25,8 +44,8 @@ const post = async (url, payload) => {
   })
 }
 
-export const fetchThreads = async () => embeddedMode ? embedded().fetchThreads() : req('/api/threads')
-export const fetchCheckout = async id => embeddedMode ? embedded().fetchCheckout(id) : req(`/api/checkout?id=${encodeURIComponent(id)}`)
+export const fetchThreads = async () => embeddedMode ? embedded().fetchThreads() : req(`${API}/threads`)
+export const fetchCheckout = async id => embeddedMode ? embedded().fetchCheckout(id) : req(`${API}/checkout?id=${encodeURIComponent(id)}`)
 
 /**
  * The colony file, and the base every later save is measured against.
@@ -52,7 +71,7 @@ export const fetchState = async () => {
   return state
 }
 
-const readState = () => embeddedMode ? embedded().readState() : req('/api/state')
+const readState = () => embeddedMode ? embedded().readState() : req(`${API}/state`)
 
 async function writeState(state, baseUpdatedAt) {
   if (embeddedMode) {
@@ -62,10 +81,14 @@ async function writeState(state, baseUpdatedAt) {
       throw error
     }
   }
-  const response = await fetch('/api/state', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  const response = await fetch(`${API}/state`, {
+    method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...state, baseUpdatedAt }),
   })
+  if (HOSTED && response.status === 401) {
+    signInRedirect()
+    throw new Error('Sign in to see your planet')
+  }
   const body = await response.json().catch(() => ({}))
   return { ok: response.ok, conflict: response.status === 409, body, error: body.error || `${response.status} ${response.statusText}` }
 }
@@ -127,17 +150,51 @@ export async function saveState(state) {
  * Hand a thread back to whichever harness owns it — the desktop app comes forward on its own,
  * or a terminal opens with its CLI, whichever `via` asks for.
  *
- * `ref` is opaque here on purpose: it is whatever that harness's adapter needs to find the
- * thread again, and the browser only ever passes it straight back. Nothing in the UI knows
- * what a Claude Code session id, or a Codex rollout id, actually looks like.
+ * Locally the server hands the harness's deep link to the OS opener. Hosted, the page *is* on
+ * the machine that runs the harness, so it navigates to the deep link itself and the browser
+ * asks the OS to open it. `ref` stays opaque either way: whatever the harness's adapter needs
+ * to find the thread again.
  */
-export const openThread = (thread, via) => embeddedMode
-  ? embedded().runAction('open', thread.id)
-  : post('/api/open', { harness: thread.harness, ref: thread.ref, via })
+export const openThread = (thread, via) => {
+  if (embeddedMode) return embedded().runAction('open', thread.id)
+  if (!HOSTED) return post(`${API}/open`, { harness: thread.harness, ref: thread.ref, via })
+  if (!thread.canOpen || !thread.openUrl) {
+    throw new Error(thread.openHint || 'That thread cannot be opened from here')
+  }
+  return openDeepLink(thread.openUrl)
+}
+
+/** Navigate to a `harness://` link. The page stays put; the OS hands the link to its app. */
+export function openDeepLink(url) {
+  window.location.assign(url)
+  return Promise.resolve({ ok: true, url })
+}
 
 /** A brand new thread in a repo, via that harness's own new-session deep link. */
-export const newSession = (folder, harness, via) => post('/api/new-session', { folder, harness, via })
+export const newSession = (folder, harness, via) => post(`${API}/new-session`, { folder, harness, via })
 
-export const revealFolder = (folder) => embeddedMode
-  ? embedded().runAction('reveal', folder?.id)
-  : post('/api/reveal', { folder })
+export const revealFolder = (folder) => {
+  if (embeddedMode) return embedded().runAction('reveal', folder?.id)
+  if (HOSTED) return Promise.reject(new Error('Not available on a hosted planet — the folder is on your computer'))
+  return post(`${API}/reveal`, { folder })
+}
+
+/** Hosted only: the person's plan and where their crew lives. */
+export const fetchBilling = () => req('/api/billing/status')
+
+/** Hosted only: where to send the browser to pay. The workspace decides — Stripe, a link, or a local stand-in. */
+export const startCheckout = () => post('/api/billing/checkout', {})
+
+/** Hosted only: a fresh chat with the person's crew; resolves to where it lives. */
+export const newCrewSession = () => post(`${API}/crew/sessions`, {})
+
+/** Hosted only: what the in-page scanner saw, so the planet shows from another device too. */
+export const putSnapshot = async (snapshot) => {
+  const res = await fetch(`${API}/snapshot`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(snapshot),
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+}
