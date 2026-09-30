@@ -16,15 +16,21 @@ import { Ambience } from './audio/ambience.js'
 import { shorelinePoints } from './world/planet.js'
 import { shipPosition } from './world/plots.js'
 import {
+  HOSTED,
+  fetchBilling,
   fetchThreads,
   fetchCheckout,
   fetchState,
   saveState,
   openThread,
+  openDeepLink,
+  newCrewSession,
   newSession,
+  putSnapshot,
   revealFolder,
   embeddedBridge,
   isEmbedded,
+  startCheckout,
 } from './game/api.js'
 import { applyEmbeddedQuality, createEmbeddedHostController, createEmbeddedVisibilityScheduler, filterEmbeddedThreads } from './game/embedded-api.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
@@ -32,6 +38,8 @@ import { withErrands } from './game/errands.js'
 import { groupProjects, migrateProjectState, migrateSessionState, filterSessions, projectCategory, projectOverview } from './game/projects.js'
 import { mergeState } from './game/merge-state.js'
 import { archiveColonyThread, autoArchiveBatch, rankColonyRoster, restoreColonyThread } from './game/auto-archive.js'
+import { LocalScanner } from './scan/index.js'
+import { CrewPanel } from './ui/crew.js'
 
 /**
  * Boot and the outer game loop.
@@ -50,7 +58,7 @@ app.insertAdjacentHTML(
   'beforeend',
   `<div class="boot"><div class="inner">
      <h1>Bot Crossing</h1>
-     <p>Scanning for agent threads…</p>
+     <p>${HOSTED ? 'Loading your planet…' : 'Scanning for agent threads…'}</p>
      <div class="bar"><i></i></div>
    </div></div>`
 )
@@ -77,6 +85,11 @@ let projectInventory = []
 let groupedInventory = []
 let filters = { query: '', harness: '', status: '', checkout: '', includeHistorical: false }
 let selectedCheckout = ''
+/** Hosted only: the page's own scanner and the panel that manages what it reads. */
+let scanner = null
+let crew = null
+/** What the server answered last — on a hosted planet, its snapshot plus the workspace's own agents. */
+let serverThreads = []
 /** Last legend built for the bottom bar, kept so the open zone's chip can light up between polls. */
 let legendProjects = []
 /** The zone layout as last written to the colony file, so an unchanged map is not re-saved. */
@@ -235,15 +248,27 @@ const actions = {
   newConversation: async () => {
     const name = selectedProject
     const folder = name && pathForProject(name)
-    if (!folder) {
+    if (!folder && !(HOSTED && harnessForProject(name) === 'emrabot')) {
       hud.toast('No folder on disk for that project', 'err')
       return
     }
     try {
       const harness = harnessForProject(name)
-      const shown = await newSession(folder, harness, settings.get('openIn'))
+      let shown = null
+      if (HOSTED && harness === 'emrabot') {
+        // The crew lives in this workspace: a new chat is a page here, not a deep link.
+        const { url } = await newCrewSession()
+        await openDeepLink(url)
+      } else if (HOSTED) {
+        // The page is on the machine that runs the harness, so it opens the deep link itself.
+        const url = scanner?.newSessionUrl(harness, folder)
+        if (!url) throw new Error('That harness has no new-thread link from here')
+        await openDeepLink(url)
+      } else {
+        shown = await newSession(folder, harness, settings.get('openIn'))
+      }
       const label = harnessLabel(harness)
-      hud.toast(`New thread in ${name} — ${shown.via === 'terminal' ? `${label} in a terminal` : `opening ${label}`}`)
+      hud.toast(`New thread in ${name} — ${shown?.via === 'terminal' ? `${label} in a terminal` : `opening ${label}`}`)
       // It lands as an astronaut walking down the ramp, once it has a record to scan.
       setTimeout(poll, 6000)
     } catch (err) {
@@ -1117,18 +1142,34 @@ function chimeForNewWaiting(list, archivedSet, hiddenSet) {
   for (const id of waiting) waitingBefore.add(id)
 }
 
+/**
+ * Hosted: what this page scanned, plus whatever the workspace itself runs. The server also
+ * holds a copy of our own scan — the snapshot it shows on a phone — but here that copy would
+ * only ever be staler than the live one, so it is left out whenever a folder is being read.
+ */
+function mergedThreads() {
+  const crew = serverThreads.filter((t) => t.harness === 'emrabot')
+  if (scanner?.active.length) return [...scanner.threads, ...crew]
+  // No folder granted. A computer that could read one but has none is showing exactly what the
+  // person asked for — the crew and nothing else; only a device that cannot read folders at all,
+  // or one whose grant merely lapsed, borrows the last snapshot.
+  const lapsed = scanner && scanner.folders.size > 0
+  return scanner?.supported && !lapsed ? crew : serverThreads
+}
+
 let polling = false
 async function poll() {
   if (polling || document.hidden || hostHidden) return
   polling = true
   try {
     const res = await fetchThreads()
+    serverThreads = res.threads || []
     const notice = hud.$('.scan-notice')
     const legacy = Object.keys(state.plots || {}).filter(k => !k.startsWith('project:') && !state.projectMigrations?.[k])
     notice.textContent = [...(res.warnings || []), legacy.length ? `${legacy.length} legacy layout names retained for migration review.` : ''].filter(Boolean).join(' · ')
     notice.hidden = !notice.textContent
     projectInventory = res.projects || []
-    applyThreads(res.threads || [])
+    applyThreads(HOSTED ? mergedThreads() : serverThreads)
     hud.removeBoot()
   } catch (err) {
     if (sourceThreads.length) applyThreads(sourceThreads.map(t => ({ ...t, stale: true, running: null,
@@ -1190,6 +1231,32 @@ async function boot() {
   colony.astronauts.setRig(crewRig())
   if (!kitError) colony.onAssetsReady()
 
+  if (HOSTED) {
+    scanner = new LocalScanner({
+      onThreads: () => applyThreads(mergedThreads()),
+      onStatus: (status) => crew?.setStatus(status),
+      publish: putSnapshot,
+    })
+    crew = new CrewPanel(app, {
+      scanner,
+      toast: (message, kind) => hud.toast(message, kind),
+      checkout: startCheckout,
+    })
+    await scanner.init()
+    scanner.start(POLL_MS)
+    window.addEventListener('focus', () => scanner.scan())
+    // Back from checkout: the URL says how it went, and the plan is re-read either way.
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('upgraded')) hud.toast('Your crew has landed — look for them on the planet')
+    if (params.get('upgrade') === 'failed') hud.toast('The payment did not go through', 'err')
+    if (params.has('upgraded') || params.has('upgrade')) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+    fetchBilling()
+      .then((billing) => crew.setBilling(billing))
+      .catch(() => crew.setBilling({ plan: 'free', active: false, checkout: 'off', crewAgent: null, crewUrl: null }))
+  }
+
   await poll()
   visibilityScheduler = createEmbeddedVisibilityScheduler({ poll, isDocumentHidden: () => document.hidden, period: POLL_MS })
   visibilityScheduler.setHostHidden(hostHidden)
@@ -1199,7 +1266,12 @@ async function boot() {
     visibilityScheduler.documentVisibilityChanged()
   })
 
-  if (!localStorage.getItem('botcrossing.seen-help')) {
+  // A hosted planet with nothing on it yet asks how it should be crewed, and that question
+  // takes the place of the help card on a first visit — two dialogs at once is one too many.
+  const needsCrew = HOSTED && !scanner.active.length && !threads.length
+  if (needsCrew) crew.open()
+
+  if (!needsCrew && !localStorage.getItem('botcrossing.seen-help')) {
     hud.toggleHelp(true)
     localStorage.setItem('botcrossing.seen-help', '1')
   } else {
